@@ -3,9 +3,9 @@
 給 herdr-app 用的兩個 mod，在 Herdr 裡看目前 repo 的 git 狀態。全部唯讀，不會寫進 `.git`。
 
 - git-graph：主區的面板。Graph 分頁畫 `git log --graph --all`（最多 300 筆），標出還沒 push 的 commit 和已合併可刪的分支，點 commit 會顯示 `git show` 的內容。PR/MR 分頁列出開著的 PR（github.com 用 gh）或 MR（gitlab.com 和自架 GitLab 用 glab），附 CI 和 review 狀態，點了用瀏覽器開。
-- git-status：底部狀態列右邊的摘要，例如 `MR !12 ✗ · CI ● · 2 分支可刪`。點它開啟 git-graph。
+- git-status：底部狀態列右邊的摘要，例如 `MR !12 ✗ · CI ● · 2 分支可刪`。點它開關 git-graph。
 
-開 git-graph 的方法：點狀態列摘要、按右上角 Git 按鈕，或按 `ctrl-shift-g`。
+開 git-graph 的方法：點狀態列摘要、按右上角 Git 按鈕，或按 `ctrl-shift-g`。面板開著時再做一次同樣的動作，就會關掉。
 
 ## 安裝
 

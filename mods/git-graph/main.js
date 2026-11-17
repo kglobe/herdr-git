@@ -33,6 +33,7 @@ export default class GitGraph extends View {
     if (this.watched === dir) return;
     this.watching?.cancel();
     this.watched = dir;
+    if (!dir) return;
     cx.spawn(async () => {
       try {
         while (this.watched === dir) {
@@ -48,13 +49,13 @@ export default class GitGraph extends View {
     if (checking() || this.loading) return;
     const cwd = this.context = this.cwd;
     this.dirty = false;
-    if (!cwd) { this.root = null; this.rows = []; this.error = null; return; }
+    if (!cwd) { this.root = null; this.rows = []; this.error = null; this.watch(null, cx); return; }
     this.loading = true;
     cx.spawn(async (cx) => {
       try {
         const top = await gitIn(cwd)(["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir", "--abbrev-ref", "HEAD"]);
         if (cwd !== this.cwd) return;
-        if (top.code !== 0) { this.root = null; this.rows = []; this.error = "不是 git repo"; return; }
+        if (top.code !== 0) { this.root = null; this.rows = []; this.error = "不是 git repo"; this.watch(null, cx); return; }
         const [root, common, head] = top.stdout.trim().split("\n");
         const git = gitIn(root), current = head === "HEAD" ? "" : head;
         const [log, remotes, trees, base] = await Promise.all([
@@ -121,7 +122,7 @@ export default class GitGraph extends View {
     const view = v_flex().flex_1().min_h(0);
     if (!this.rows.length) return view.child(div().p(12).text_color(t.dim).child(this.error ?? (this.loading ? "載入中…" : "沒有資料夾")));
     return view
-      .when(this.trees.length > 1, (el) => el.child(h_flex().flex_none().px(10).py(6).gap(6).items_center().border_b(1).border_color(t.border).text_size(11.5)
+      .when(this.trees.length > 1, (el) => el.child(h_flex().id("git-trees").flex_none().overflow_x_scroll().px(10).py(6).gap(6).items_center().border_b(1).border_color(t.border).text_size(11.5)
         .child(div().flex_none().text_color(t.dim).child("worktree"))
         .children(this.trees.map((w, i) => {
           const here = samePath(w.path, this.root);
@@ -170,7 +171,7 @@ export default class GitGraph extends View {
     if (note) return div().p(12).text_color(t.dim).child(note);
     const word = data.kind === "github" ? "PR" : "MR", mine = data.pipelines.filter((p) => p.ref === this.branch).slice(0, 5);
     const ci = (s) => div().w(14).flex_none().text_color({ ok: t.ansi2, fail: t.ansi1, run: t.working, none: t.dim }[s]).child(ICON[s]);
-    const row = (id, url) => h_flex().id(id).h(28).flex_none().px(10).gap(8).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => cx.open_url(url));
+    const row = (id, url) => h_flex().id(id).h(28).flex_none().px(10).gap(8).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => /^https?:\/\//i.test(url ?? "") && cx.open_url(url));
     const section = (text) => div().px(10).pt(10).pb(4).text_size(11).text_color(t.dim).child(text);
     const empty = (text) => div().px(10).py(4).text_color(t.dim).child(text);
     return v_flex().id("git-pr").flex_1().min_h(0).p(6).overflow_y_scrollbar()

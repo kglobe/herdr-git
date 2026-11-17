@@ -41,7 +41,9 @@ export default class GitStatus extends View {
   }
 
   refresh(cx, remote) {
-    if (checking() || this.loading) return;
+    if (checking()) return;
+    // A refresh asked for mid-load (the 重新整理 button) runs once that load ends instead of being dropped.
+    if (this.loading) { this.again ||= remote; return; }
     const cwd = this.context = this.cwd;
     if (!cwd) { this.root = null; return; }
     this.loading = true;
@@ -58,7 +60,10 @@ export default class GitStatus extends View {
         this.root = root; this.branch = branch;
         if (remote || moved) await this.fetchRemote(root, git);
       } catch { /* exec couldn't start (git missing): show nothing */ }
-      finally { this.loading = false; cx.notify(); }
+      finally {
+        this.loading = false; cx.notify();
+        if (this.again) { this.again = false; this.refresh(cx, true); }
+      }
     });
   }
 

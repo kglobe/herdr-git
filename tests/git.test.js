@@ -31,6 +31,8 @@ test("ciState folds gh runs, gh rollups and gitlab pipelines to ok/fail/run/none
   assert.equal(ciState({ status: "completed", conclusion: "failure" }), "fail");
   assert.equal(ciState({ status: "in_progress", conclusion: "" }), "run");
   assert.equal(ciState({ status: "completed", conclusion: "cancelled" }), "none");
+  assert.equal(ciState(null), "none");
+  assert.equal(ciState([null]), "none");
   assert.equal(ciState("success"), "ok");
   assert.equal(ciState("failed"), "fail");
   assert.equal(ciState("running"), "run");

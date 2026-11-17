@@ -29,6 +29,7 @@ const RANK = ["none", "ok", "run", "fail"];
 
 // One CI state from a GitLab pipeline status, a gh run / check run, or a gh statusCheckRollup array.
 export function ciState(x) {
+  if (!x) return "none";
   if (typeof x === "string") return GL[x] ?? "none";
   if (Array.isArray(x)) return x.map(ciState).reduce((a, b) => (RANK.indexOf(b) > RANK.indexOf(a) ? b : a), "none");
   if (x?.state) return CONTEXT[x.state.toLowerCase()] ?? "none";

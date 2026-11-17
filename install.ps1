@@ -36,7 +36,8 @@ $button = @'
 $layout = "$app\layouts\main-wintoast.json"
 if (-not (Test-Path $layout)) { throw "$layout not found: run herdr-notify-win's install.ps1 first" }
 function Get-Nodes($node) { $node; foreach ($c in @($node.children)) { if ($null -ne $c) { Get-Nodes $c } } }
-$root = Get-Content -Raw $layout | ConvertFrom-Json
+# [IO.File] reads and writes UTF-8 (no BOM) in both pwsh and Windows PowerShell 5.1, whose Get/Set-Content use ANSI.
+$root = [IO.File]::ReadAllText($layout) | ConvertFrom-Json
 $nodes = @(Get-Nodes $root)
 # The status block becomes a row: workspace-status, then git-status at 300 px.
 $status = $nodes | Where-Object id -eq 'status'
@@ -49,13 +50,13 @@ if (-not ($nodes | Where-Object id -eq 'status-git')) {
     $status | Add-Member children @($left, $right)
 }
 $nodes | Where-Object { $_.content.mod -eq 'tabs' } | ForEach-Object { $_.content.mod = 'tabs-git' }
-$root | ConvertTo-Json -Depth 100 | Set-Content -NoNewline $layout
+[IO.File]::WriteAllText($layout, ($root | ConvertTo-Json -Depth 100))
 
 $keys = "$app\keys.json"
-$k = Get-Content -Raw $keys | ConvertFrom-Json
+$k = [IO.File]::ReadAllText($keys) | ConvertFrom-Json
 if (-not $k.global.'ctrl-shift-g') {
     $k.global | Add-Member 'ctrl-shift-g' 'git-status.open'
-    $k | ConvertTo-Json -Depth 100 | Set-Content -NoNewline $keys
+    [IO.File]::WriteAllText($keys, ($k | ConvertTo-Json -Depth 100))
 }
 
 foreach ($name in 'git-graph', 'git-status', 'tabs-git') {

@@ -2,15 +2,14 @@ import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { panes, focused, exec, run, theme, shared, setShared, nextCommand, checking } from "herdr";
 // git.js / repo.js come from the repo's shared/ folder: install.ps1 copies them in (mods can't import across folders).
-import { READ, remoteKind, remoteData, summary, defaultBase, mergedBranches } from "./git.js";
-import { repoCwd, remoteKey } from "./repo.js";
+import { firstLine, remoteKind, remoteData, summary, defaultBase, mergedBranches } from "./git.js";
+import { repoCwd, remoteKey, gitIn } from "./repo.js";
 
 const CLI = {
   github: [["gh", ["pr", "list", "--json", "number,title,headRefName,isDraft,reviewDecision,statusCheckRollup,url"]],
     ["gh", ["run", "list", "-L", "20", "--json", "headBranch,status,conclusion,displayTitle,url"]]],
   gitlab: [["glab", ["mr", "list", "-F", "json"]], ["glab", ["ci", "list", "-P", "20", "-F", "json"]]],
 };
-const firstLine = (s) => (s ?? "").trim().split("\n")[0].slice(0, 160);
 
 // Always shown in the status row, so it owns the remote (gh / glab) data that git-graph reads from shared:
 // one fetcher, every 60 s while a git-graph pane exists in the window, else every 120 s.
@@ -27,7 +26,6 @@ export default class GitStatus extends View {
         const c = await nextCommand();
         if (c === "open") this.open();
         if (c === "refresh") this.refresh(cx, true);
-        cx.notify();
       }
     });
   }
@@ -49,11 +47,11 @@ export default class GitStatus extends View {
     this.loading = true;
     cx.spawn(async (cx) => {
       try {
-        const top = await exec("git", [...READ, "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD"], { cwd });
+        const top = await gitIn(cwd)(["rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD"]);
         if (cwd !== this.cwd) return;
         if (top.code !== 0) { this.root = null; return; }
         const [root, branch] = top.stdout.trim().split("\n");
-        const git = (args) => exec("git", [...READ, ...args], { cwd: root });
+        const git = gitIn(root);
         const base = await defaultBase(git);
         this.deletable = base ? (await mergedBranches(git, base, branch)).length : 0;
         const moved = root !== this.root;
@@ -69,13 +67,14 @@ export default class GitStatus extends View {
     if (url.code !== 0) return this.store(root, { kind: null, error: "沒有 origin 遠端" });
     const kind = remoteKind(url.stdout.trim());
     if (!kind) return this.store(root, { kind: null, error: "不支援的遠端" });
+    const cli = CLI[kind][0][0];
     try {
       const [pr, ci] = await Promise.all(CLI[kind].map(([cmd, args]) => exec(cmd, args, { cwd: root, timeout: 20000 })));
       const bad = [pr, ci].find((r) => r.code !== 0);
-      if (bad) return this.store(root, { kind, error: `${CLI[kind][0][0]}：${firstLine(bad.stderr || bad.stdout)}` });
+      if (bad) return this.store(root, { kind, error: `${cli}：${firstLine(bad.stderr || bad.stdout)}` });
       this.store(root, { kind, ...remoteData(kind, JSON.parse(pr.stdout), JSON.parse(ci.stdout)) });
     } catch (e) {
-      this.store(root, { kind, error: `${CLI[kind][0][0]}：${firstLine(String(e))}` });
+      this.store(root, { kind, error: `${cli}：${firstLine(String(e))}` });
     }
   }
 

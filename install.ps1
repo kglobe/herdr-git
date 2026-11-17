@@ -7,10 +7,11 @@ $herdr = "$env:LOCALAPPDATA\Programs\herdr-app\herdr-app.exe"
 # Mods can't import outside their own folder: each gets its own copy of shared/.
 foreach ($name in 'git-graph', 'git-status') {
     $dir = "$app\mods\$name"
-    New-Item -ItemType Directory -Force $dir | Out-Null
-    # mod.json first: a main.js seen without it gets the default place (right, 320 px) in the layout.
-    Copy-Item "$PSScriptRoot\mods\$name\mod.json" $dir -Force
-    Copy-Item "$PSScriptRoot\mods\$name\*", "$PSScriptRoot\shared\*.js" $dir -Force
+    # A new mod folder whose main.js Herdr sees before mod.json gets the default place (right, 320 px)
+    # in the layout: build it outside mods\ and move it in whole.
+    $to = if (Test-Path $dir) { $dir } else { New-Item -ItemType Directory -Force "$app\.staging-$name" }
+    Copy-Item "$PSScriptRoot\mods\$name\main.js", "$PSScriptRoot\mods\$name\mod.json", "$PSScriptRoot\shared\*.js" $to -Force
+    if ("$to" -ne $dir) { Move-Item $to $dir }
 }
 
 # tabs-git: a fresh clone of the built-in tabs each run, so tabs updates carry over.
@@ -34,25 +35,27 @@ $button = @'
 
 $layout = "$app\layouts\main-wintoast.json"
 if (-not (Test-Path $layout)) { throw "$layout not found: run herdr-notify-win's install.ps1 first" }
-$text = [IO.File]::ReadAllText($layout)
-# Blocks Herdr auto-placed for these mods (see mod.json note above).
-$text = $text -replace ',\s*\{\s*"id": "b[0-9a-f]+",\s*"type": "block",\s*"content": \{\s*"mod": "git-(graph|status)"\s*\},\s*"size": \{\s*"px": \d+\s*\}\s*\}', ''
-if ($text -notmatch '"status-git"') {
-    $status = [regex]'\{\s*"id": "status",\s*"type": "block",\s*"content": \{\s*"mod": "workspace-status"\s*\},\s*"size": \{\s*"px": 28\s*\}\s*\}'
-    if (-not $status.IsMatch($text)) { throw "status block not found in $layout" }
-    $row = '{ "id": "status", "type": "row", "size": { "px": 28 }, "children": [ ' +
-        '{ "id": "status-main", "type": "block", "content": { "mod": "workspace-status" } }, ' +
-        '{ "id": "status-git", "type": "block", "content": { "mod": "git-status" }, "size": { "px": 300 } } ] }'
-    $text = $status.Replace($text, $row, 1)
+function Get-Nodes($node) { $node; foreach ($c in @($node.children)) { if ($null -ne $c) { Get-Nodes $c } } }
+$root = Get-Content -Raw $layout | ConvertFrom-Json
+$nodes = @(Get-Nodes $root)
+# The status block becomes a row: workspace-status, then git-status at 300 px.
+$status = $nodes | Where-Object id -eq 'status'
+if (-not $status) { throw "status node not found in $layout" }
+if (-not ($nodes | Where-Object id -eq 'status-git')) {
+    $left = [pscustomobject]@{ id = 'status-main'; type = 'block'; content = $status.content }
+    $right = [pscustomobject]@{ id = 'status-git'; type = 'block'; content = @{ mod = 'git-status' }; size = @{ px = 300 } }
+    $status.PSObject.Properties.Remove('content')
+    $status.type = 'row'
+    $status | Add-Member children @($left, $right)
 }
-$text = $text -replace '"mod": "tabs"', '"mod": "tabs-git"'
-[IO.File]::WriteAllText($layout, $text)
+$nodes | Where-Object { $_.content.mod -eq 'tabs' } | ForEach-Object { $_.content.mod = 'tabs-git' }
+$root | ConvertTo-Json -Depth 100 | Set-Content -NoNewline $layout
 
 $keys = "$app\keys.json"
-$k = [IO.File]::ReadAllText($keys)
-if ($k -notmatch '"ctrl-shift-g"') {
-    $k = ([regex]'"global": \{').Replace($k, "`"global`": {`n    `"ctrl-shift-g`": `"git-status.open`",", 1)
-    [IO.File]::WriteAllText($keys, $k)
+$k = Get-Content -Raw $keys | ConvertFrom-Json
+if (-not $k.global.'ctrl-shift-g') {
+    $k.global | Add-Member 'ctrl-shift-g' 'git-status.open'
+    $k | ConvertTo-Json -Depth 100 | Set-Content -NoNewline $keys
 }
 
 foreach ($name in 'git-graph', 'git-status', 'tabs-git') {

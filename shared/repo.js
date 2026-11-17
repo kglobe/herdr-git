@@ -1,4 +1,8 @@
-import { spaces, panes, focused } from "herdr";
+import { spaces, panes, focused, exec } from "herdr";
+import { READ } from "./git.js";
+
+// A read-only git runner for one folder: every call gets READ.
+export const gitIn = (cwd) => (args) => exec("git", [...READ, ...args], { cwd });
 
 // The folder to show: the focused terminal's, or `prev` while a mod pane (git-graph itself) has focus,
 // else the first terminal in the focused tab. A mod pane's cwd is null, so the changes mod's location()

@@ -5,6 +5,7 @@ export const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", 
 const US = "\x1f";
 export const LOG_FORMAT = `--format=${US}%h${US}%s${US}%D${US}%an${US}%ar${US}%H`;
 export const ICON = { ok: "✓", fail: "✗", run: "●", none: "–" };
+export const firstLine = (s) => (s ?? "").trim().split("\n")[0].slice(0, 160);
 
 export function parseLog(text) {
   return text.split("\n").filter((l) => l.trim()).map((line) => {
@@ -65,7 +66,7 @@ export function summary(remote, branch, deletable) {
   return parts.length ? parts.join(" · ") : null;
 }
 
-// Text draws a tab as nothing: pad each to the next 4-column stop.
+// Text draws a tab as nothing: pad each to the next 4-column stop. Copied from the changes mod.
 const untab = (text) => text.replace(/[^\t]*\t/g, (s) => s.slice(0, -1).padEnd((s.length - 1) - (s.length - 1) % 4 + 4));
 
 // `git show --stat -p` rows, numbered inside hunks only (the changes mod's diffRows numbers every line).
@@ -76,10 +77,9 @@ export function showRows(lines) {
     const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(line);
     if (match) { old = +match[1]; next = +match[2]; hunk = true; return { kind: "@", text: line }; }
     const kind = line[0];
-    if (hunk && kind === "-") return { kind, number: old++, text: untab(line.slice(1)) || " " };
-    if (hunk && kind === "+") return { kind, number: next++, text: untab(line.slice(1)) || " " };
-    if (hunk && kind === " ") { old++; return { kind, number: next++, text: untab(line.slice(1)) || " " }; }
-    return { kind: "", text: untab(line) || " " };
+    if (!hunk || !"-+ ".includes(kind)) return { kind: "", text: untab(line) || " " };
+    const number = kind === "-" ? old++ : kind === "+" ? next++ : (old++, next++);
+    return { kind, number, text: untab(line.slice(1)) || " " };
   });
 }
 

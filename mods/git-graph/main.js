@@ -1,20 +1,14 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, exec, run, theme, settings, shared, watchFolder, window, checking } from "herdr";
+import { spaces, run, theme, settings, shared, watchFolder, checking } from "herdr";
 // git.js / repo.js come from the repo's shared/ folder: install.ps1 copies them in (mods can't import across folders).
-import { READ, LOG_FORMAT, ICON, parseLog, parseWorktrees, showRows, samePath, defaultBase, mergedBranches } from "./git.js";
-import { repoCwd, remoteKey } from "./repo.js";
+import { LOG_FORMAT, ICON, firstLine, parseLog, parseWorktrees, showRows, samePath, defaultBase, mergedBranches } from "./git.js";
+import { repoCwd, remoteKey, gitIn } from "./repo.js";
 
 const LIMIT = 300;
 const LANES = ["ansi4", "ansi2", "ansi3", "ansi5", "ansi6", "ansi1"];
-const firstLine = (s) => (s ?? "").trim().split("\n")[0];
-
-function openUrl(url) {
-  if (!/^https:\/\//.test(url ?? "")) return;
-  const p = window()?.platform;
-  const [cmd, args] = p === "windows" ? ["rundll32", ["url.dll,FileProtocolHandler", url]] : [p === "macos" ? "open" : "xdg-open", [url]];
-  exec(cmd, args).catch(() => {});
-}
+// Only ref moves change the graph; index, objects, logs and FETCH_HEAD churn on every IDE poll or gc.
+const REF_CHANGE = /[\\/](HEAD|packed-refs)$|[\\/]refs[\\/]/;
 
 // Same look as the changes mod's diff rows.
 function diffRow({ kind, number, text }, t) {
@@ -43,7 +37,8 @@ export default class GitGraph extends View {
       try {
         while (this.watched === dir) {
           this.watching = watchFolder(dir);
-          if ((await this.watching).length && this.watched === dir) this.dirty = true;
+          const paths = await this.watching;
+          if (this.watched === dir && paths.some((p) => samePath(p, dir) || REF_CHANGE.test(p))) this.dirty = true;
         }
       } catch { this.watched = null; }
     });
@@ -57,16 +52,16 @@ export default class GitGraph extends View {
     this.loading = true;
     cx.spawn(async (cx) => {
       try {
-        const top = await exec("git", [...READ, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"], { cwd });
+        const top = await gitIn(cwd)(["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir", "--abbrev-ref", "HEAD"]);
         if (cwd !== this.cwd) return;
         if (top.code !== 0) { this.root = null; this.rows = []; this.error = "不是 git repo"; return; }
-        const [root, common] = top.stdout.trim().split("\n");
-        const git = (args) => exec("git", [...READ, ...args], { cwd: root });
-        const [log, branch, remotes, trees, base] = await Promise.all([
+        const [root, common, head] = top.stdout.trim().split("\n");
+        const git = gitIn(root), current = head === "HEAD" ? "" : head;
+        const [log, remotes, trees, base] = await Promise.all([
           git(["log", "--graph", "--all", "--date-order", "-n", String(LIMIT), LOG_FORMAT]),
-          git(["branch", "--show-current"]), git(["remote"]), git(["worktree", "list", "--porcelain"]), defaultBase(git)]);
+          git(["remote"]), git(["worktree", "list", "--porcelain"]), defaultBase(git)]);
         if (log.code !== 0) throw new Error(firstLine(log.stderr));
-        const current = branch.stdout.trim(), names = remotes.stdout.split("\n").filter(Boolean);
+        const names = remotes.stdout.split("\n").filter(Boolean);
         // Without a remote every commit would read as unpushed: mark nothing then.
         const [ahead, merged] = await Promise.all([
           names.length ? git(["log", "--branches", "--not", "--remotes", "--format=%H", "-n", String(LIMIT)]) : null,
@@ -90,7 +85,7 @@ export default class GitGraph extends View {
     if (!this.open) return;
     const root = this.root;
     cx.spawn(async (cx) => {
-      const r = await exec("git", [...READ, "show", "--stat", "-p", "--no-color", "--no-ext-diff", "--no-textconv", hash], { cwd: root }).catch(() => null);
+      const r = await gitIn(root)(["show", "--stat", "-p", "--no-color", "--no-ext-diff", "--no-textconv", hash]).catch(() => null);
       if (this.open !== hash) return;
       const lines = r?.code === 0 ? r.stdout.replace(/\n$/, "").split("\n").slice(0, 3000) : ["無法讀取這個 commit"];
       this.detail = showRows(lines.map((l) => (l.length > 4000 ? l.slice(0, 4000) + "…" : l)));
@@ -134,9 +129,9 @@ export default class GitGraph extends View {
             .when(!here, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => this.gotoTree(w.path))).child(w.branch);
         }))))
       .child(div().flex_1().min_h(0).relative()
-        .child(v_virtual_list("git-log", this.rows.length, 22, (i) => String(i),
-          (range) => this.rows.slice(range.start, range.end).map((r, k) => this.logRow(r, range.start + k, t, mono))).size_full())
-        .child(Scrollbar.vertical("git-log").viewport_from_layout().absolute().inset_0()))
+        // Plain rows, as the changes mod's file list: v_virtual_list drew nothing here, and LIMIT keeps it at 300 rows.
+        .child(v_flex().id("git-log").absolute().inset_0().overflow_y_scroll().children(this.rows.map((r, i) => this.logRow(r, i, t, mono))))
+        .child(Scrollbar.vertical("git-log").absolute().inset_0()))
       .when(Boolean(this.open), (el) => el.child(div().flex_1().min_h(0).relative().border_t(1).border_color(t.border).font_family(mono).text_size(11)
         .child(div().id("git-show-x").size_full().overflow_x_scrollbar()
           .child(div().w_full().min_w(this.detailWidth).h_full().child(v_virtual_list("git-show", this.detail.length, 20, (i) => String(i),
@@ -149,9 +144,9 @@ export default class GitGraph extends View {
     const lanes = [];
     for (let c = 0; c < r.graph.length; c += 2) lanes.push(div().text_color(t[LANES[(c / 2) % LANES.length]]).child(r.graph.slice(c, c + 2).replace("*", "●")));
     const graph = h_flex().flex_none().font_family(mono).whitespace_nowrap().children(lanes);
-    if (!r.hash) return h_flex().h(22).flex_none().px(10).items_center().child(graph);
+    if (!r.hash) return h_flex().w_full().h(22).flex_none().px(10).items_center().child(graph);
     const small = (text, color) => div().flex_none().text_size(11).text_color(color).child(text);
-    return h_flex().id(`c-${i}`).h(22).flex_none().px(10).gap(8).items_center().cursor_pointer()
+    return h_flex().id(`c-${i}`).w_full().h(22).flex_none().px(10).gap(8).items_center().cursor_pointer()
       .when(this.open === r.full, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.pick(r.full, cx))
       .child(graph)
       .when(this.wide, (e) => e.child(div().flex_none().font_family(mono).text_size(11.5).text_color(t.dim).child(r.hash)))
@@ -175,7 +170,7 @@ export default class GitGraph extends View {
     if (note) return div().p(12).text_color(t.dim).child(note);
     const word = data.kind === "github" ? "PR" : "MR", mine = data.pipelines.filter((p) => p.ref === this.branch).slice(0, 5);
     const ci = (s) => div().w(14).flex_none().text_color({ ok: t.ansi2, fail: t.ansi1, run: t.working, none: t.dim }[s]).child(ICON[s]);
-    const row = (id, url) => h_flex().id(id).h(28).flex_none().px(10).gap(8).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => openUrl(url));
+    const row = (id, url) => h_flex().id(id).h(28).flex_none().px(10).gap(8).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => cx.open_url(url));
     const section = (text) => div().px(10).pt(10).pb(4).text_size(11).text_color(t.dim).child(text);
     const empty = (text) => div().px(10).py(4).text_color(t.dim).child(text);
     return v_flex().id("git-pr").flex_1().min_h(0).p(6).overflow_y_scrollbar()

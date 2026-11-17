@@ -30,12 +30,12 @@ export default class GitStatus extends View {
     });
   }
 
-  // Focuses the tab's git-graph pane, or splits one off the focused pane. Never toggles it closed.
+  // Toggles the tab's git-graph pane: closes it, or splits one off the focused pane.
   open() {
     const f = focused();
     if (!f) return;
     const graph = panes().find((p) => p.tab === f.tab && p.mod === "git-graph");
-    if (graph) return run("pane.focus", { pane: graph.pane });
+    if (graph) return run("pane.close", { pane: graph.pane });
     const pane = f.pane ?? panes().find((p) => p.tab === f.tab)?.pane;
     run("pane.split", { direction: "right", mod: "git-graph", ...(pane ? { pane } : {}) });
   }

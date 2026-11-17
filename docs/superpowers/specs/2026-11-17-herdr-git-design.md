@@ -51,7 +51,7 @@
 
 ### 1. `git-graph`（主區 mod pane）
 
-開法：快捷鍵 `ctrl-shift-g` 綁 `git-status.open`，由常駐的 `git-status` 判斷：同 tab 已有 `git-graph` 就聚焦，沒有就 `pane.split {direction:"right", mod:"git-graph"}`。只開或聚焦，不做 toggle 關閉。摘要列點擊、右上角 Git 按鈕同樣行為。
+開法：快捷鍵 `ctrl-shift-g` 綁 `git-status.open`，由常駐的 `git-status` 判斷：同 tab 已有 `git-graph` 就關掉，沒有就 `pane.split {direction:"right", mod:"git-graph"}`（toggle）。摘要列點擊、右上角 Git 按鈕同樣行為。
 
 右上角按鈕：內建 `tabs` 的 Files / Changes 按鈕是寫死的，沒有插入點。`install.ps1` 把內建 `tabs` 複製成 `tabs-git`，在 Changes 後面插一顆 Git 按鈕（樣式照抄 `panelButton`，git-graph 在目前 tab 開著時高亮），layout 的 `tabs` block 改用 `tabs-git`。**（使用者選定。代價：herdr 更新 tabs 後要重跑 install.ps1；插入點找不到時 install 要報錯，不能默默裝一份沒按鈕的。）****（`pane.split` 直接綁快捷鍵每按一次就多開一個，`<mod>.<command>` 只送得到顯示中的 mod，所以要靠常駐的 git-status 轉接。）**
 

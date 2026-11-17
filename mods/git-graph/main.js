@@ -6,7 +6,9 @@ import { LOG_FORMAT, SHOW_FORMAT, ICON, firstLine, parseLog, parseWorktrees, par
 import { repoCwd, remoteKey, gitIn } from "./repo.js";
 
 const LIMIT = 300;
-const LANES = ["ansi4", "ansi2", "ansi3", "ansi5", "ansi6", "ansi1"];
+// Fixed palette, not the terminal's ANSI colors: themes often mute those until adjacent lanes blur together.
+const LANES = ["#2dd4bf", "#a78bfa", "#fb923c", "#f472b6", "#facc15", "#60a5fa"];
+const laneColor = (p) => LANES[((p + 1) >> 1) % LANES.length];
 // Graph geometry: px per --graph text column, commit row height, connector-only row height.
 const CW = 7, ROW = 22, LINK = 12, DETAIL_ROW = 22;
 const FADE = Array.from({ length: 12 }, (_, i) => Math.round((255 * (i + 1)) / 13).toString(16).padStart(2, "0"));
@@ -178,7 +180,7 @@ export default class GitGraph extends View {
     const g = this.rows[i].graph, up = this.rows[i - 1]?.graph ?? "", down = this.rows[i + 1]?.graph ?? "";
     const h = this.rows[i].hash ? ROW : LINK, x = (p) => p * CW + CW / 2;
     const strokes = new Map(), dots = [];
-    const color = (p) => t[LANES[((p + 1) >> 1) % LANES.length]];
+    const color = laneColor;
     const line = (p) => { const c = color(p); if (!strokes.has(c)) strokes.set(c, PathBuilder.stroke(2)); return strokes.get(c); };
     for (let p = 0; p < g.length; p++) {
       const ch = g[p];
@@ -192,7 +194,9 @@ export default class GitGraph extends View {
         if ("|*".includes(down[p] ?? " ") || down[p - 1] === "/" || down[p + 1] === "\\") line(p).move_to(x(p), h / 2).line_to(x(p), h);
         // Unpushed commits get a hollow dot.
         const hollow = this.unpushed.has(this.rows[i].full);
-        dots.push(div().absolute().left(x(p) - 5).top(h / 2 - 5).w(10).h(10).rounded_full().border_2()
+        // Merge commits (a second parent opens to the right on the next row) get a bigger dot.
+        const s = down[p + 1] === "\\" ? 14 : 10;
+        dots.push(div().absolute().left(x(p) - s / 2).top(h / 2 - s / 2).w(s).h(s).rounded_full().border_2()
           .border_color(hollow ? color(p) : t.background).bg(hollow ? t.background : color(p)));
       }
     }
@@ -214,18 +218,19 @@ export default class GitGraph extends View {
       .child(graph)
       .when(this.wide, (e) => e.child(div().flex_none().font_family(mono).text_size(11.5).text_color(t.dim).child(r.hash)))
       .child(div().flex_1().min_w(0).truncate().child(r.subject))
-      .children(r.refs.filter((ref) => !ref.endsWith("/HEAD")).map((ref) => this.refChip(ref, t)))
+      .children(r.refs.filter((ref) => !ref.endsWith("/HEAD")).map((ref) => this.refChip(ref, t, laneColor(r.graph.indexOf("*")))))
       .when(tip && this.unpushed.has(r.full), (e) => e.child(small("↑ 未push", t.working)))
       .when(this.wide, (e) => e.child(small(r.author, t.dim).w(90).truncate()).child(small(r.when, t.dim).w(100).truncate()));
   }
 
-  refChip(ref, t) {
-    const head = ref.startsWith("HEAD -> "), tag = ref.startsWith("tag: "), name = ref.replace(/^(HEAD -> |tag: )/, "");
+  refChip(ref, t, lane) {
+    const head = ref.startsWith("HEAD -> ") || ref === "HEAD", tag = ref.startsWith("tag: "), name = ref.replace(/^(HEAD -> |tag: )/, "");
     const remote = !tag && this.remotes.some((r) => name.startsWith(`${r}/`)), gone = !tag && !remote && this.merged.has(name);
-    // HEAD gets a filled chip: the one ref the eye should find first.
+    // Chips take their lane's color so the eye can follow label to line; HEAD is filled, remotes and tags stay faint.
     return div().flex_none().px(5).rounded(4).border_1().text_size(11)
-      .when(head || ref === "HEAD", (e) => e.bg(t.accent + "33"))
-      .border_color(head || ref === "HEAD" ? t.accent : t.border).text_color(remote || tag ? t.dim : gone ? t.muted : t.foreground)
+      .when(head, (e) => e.bg(lane + "33"))
+      .border_color(tag ? t.border : remote ? lane + "66" : lane)
+      .text_color(head ? t.foreground : remote || tag ? t.dim : gone ? t.muted : lane)
       .child(gone ? `${name} · 已合併，可刪` : tag ? `tag ${name}` : name);
   }
 

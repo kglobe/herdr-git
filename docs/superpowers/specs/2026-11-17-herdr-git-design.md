@@ -77,7 +77,7 @@
 
 **PR/MR 頁籤**
 
-- 依 `git remote get-url origin` 判斷：host 為 `github.com` 用 `gh`，`git.example.com` 用 `glab`，其他 host 顯示「不支援的遠端」。
+- 依 `git remote get-url origin` 判斷：host 為 `github.com` 用 `gh`，`gitlab.com` 或 `git config herdr.gitlab-host` 列出的主機用 `glab`，其他 host 顯示「不支援的遠端」。
 - GitHub：`gh pr list --json number,title,headRefName,state,isDraft,reviewDecision,statusCheckRollup,url`；`gh run list --json …` 取目前分支最近幾次 CI。
 - GitLab：`glab mr list -F json`、`glab ci list -F json`（目前分支最近 pipeline）。
 - 每列：編號、標題、分支、CI 狀態圖示（過 / 失敗 / 跑中 / 無）、review 狀態。點一列用系統瀏覽器開 URL。

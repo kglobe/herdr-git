@@ -70,7 +70,8 @@ export default class GitStatus extends View {
   async fetchRemote(root, git) {
     const url = await git(["remote", "get-url", "origin"]);
     if (url.code !== 0) return this.store(root, { kind: null, error: "沒有 origin 遠端" });
-    const kind = remoteKind(url.stdout.trim());
+    const hosts = await git(["config", "--get-all", "herdr.gitlab-host"]);
+    const kind = remoteKind(url.stdout.trim(), hosts.code === 0 ? hosts.stdout.split("\n").map((h) => h.trim()).filter(Boolean) : []);
     if (!kind) return this.store(root, { kind: null, error: "不支援的遠端" });
     const cli = CLI[kind][0][0];
     try {

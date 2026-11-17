@@ -20,8 +20,10 @@ test("parseLog splits graph, fields and refs; graph-only lines keep the graph", 
 test("remoteKind picks the CLI by host, null for others", () => {
   assert.equal(remoteKind("https://github.com/kglobe/herdr-notify-win.git"), "github");
   assert.equal(remoteKind("git@github.com:kglobe/x.git"), "github");
-  assert.equal(remoteKind("https://git.example.com/team/app"), "gitlab");
-  assert.equal(remoteKind("ssh://git@git.example.com:2222/team/x.git"), "gitlab");
+  assert.equal(remoteKind("https://gitlab.com/a/b.git"), "gitlab");
+  assert.equal(remoteKind("https://git.example.com/team/app", ["git.example.com"]), "gitlab");
+  assert.equal(remoteKind("ssh://git@Git.Example.com:2222/team/x.git", ["git.example.com"]), "gitlab");
+  assert.equal(remoteKind("https://git.example.com/team/app"), null);
   assert.equal(remoteKind("https://bitbucket.org/a/b.git"), null);
   assert.equal(remoteKind(""), null);
 });

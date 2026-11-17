@@ -16,10 +16,11 @@ export function parseLog(text) {
   });
 }
 
-const HOSTS = { "github.com": "github", "git.example.com": "gitlab" };
-export function remoteKind(url) {
+// gitlabHosts: self-hosted GitLab hosts, from `git config --get-all herdr.gitlab-host`.
+export function remoteKind(url, gitlabHosts = []) {
   const host = /^(?:[a-z+]+:\/\/)?(?:[^@/]+@)?([^/:]+)/i.exec(url ?? "")?.[1]?.toLowerCase();
-  return HOSTS[host] ?? null;
+  if (host === "github.com") return "github";
+  return host && (host === "gitlab.com" || gitlabHosts.some((h) => h.toLowerCase() === host)) ? "gitlab" : null;
 }
 
 const GL = { success: "ok", failed: "fail", running: "run", pending: "run", created: "run", preparing: "run", waiting_for_resource: "run", scheduled: "run" };

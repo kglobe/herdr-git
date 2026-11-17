@@ -1,4 +1,4 @@
-import { View, div } from "gpui-kit";
+import { View, div, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { spaces, run, theme, settings, shared, watchFolder, checking } from "herdr";
 // git.js / repo.js come from the repo's shared/ folder: install.ps1 copies them in (mods can't import across folders).
@@ -7,6 +7,8 @@ import { repoCwd, remoteKey, gitIn } from "./repo.js";
 
 const LIMIT = 300;
 const LANES = ["ansi4", "ansi2", "ansi3", "ansi5", "ansi6", "ansi1"];
+// Graph geometry: px per --graph text column, commit row height, connector-only row height.
+const CW = 7, ROW = 22, LINK = 12;
 // Only ref moves change the graph; index, objects, logs and FETCH_HEAD churn on every IDE poll or gc.
 const REF_CHANGE = /[\\/](HEAD|packed-refs)$|[\\/]refs[\\/]/;
 
@@ -121,6 +123,8 @@ export default class GitGraph extends View {
   graphView(t, mono) {
     const view = v_flex().flex_1().min_h(0);
     if (!this.rows.length) return view.child(div().p(12).text_color(t.dim).child(this.error ?? (this.loading ? "載入中…" : "沒有資料夾")));
+    // One graph width for every row, so subjects start at the same x.
+    const gw = Math.max(...this.rows.map((r) => r.graph.length)) * CW;
     return view
       .when(this.trees.length > 1, (el) => el.child(h_flex().id("git-trees").flex_none().overflow_x_scroll().px(10).py(6).gap(6).items_center().border_b(1).border_color(t.border).text_size(11.5)
         .child(div().flex_none().text_color(t.dim).child("worktree"))
@@ -131,7 +135,7 @@ export default class GitGraph extends View {
         }))))
       .child(div().flex_1().min_h(0).relative()
         // Plain rows, as the changes mod's file list: v_virtual_list drew nothing here, and LIMIT keeps it at 300 rows.
-        .child(v_flex().id("git-log").absolute().inset_0().overflow_y_scroll().children(this.rows.map((r, i) => this.logRow(r, i, t, mono))))
+        .child(v_flex().id("git-log").absolute().inset_0().overflow_y_scroll().children(this.rows.map((r, i) => this.logRow(i, t, mono, gw))))
         .child(Scrollbar.vertical("git-log").absolute().inset_0()))
       .when(Boolean(this.open), (el) => el.child(div().flex_1().min_h(0).relative().border_t(1).border_color(t.border).font_family(mono).text_size(11)
         .child(div().id("git-show-x").size_full().overflow_x_scrollbar()
@@ -140,28 +144,57 @@ export default class GitGraph extends View {
         .child(Scrollbar.vertical("git-show").viewport_from_layout().absolute().inset_0())));
   }
 
-  logRow(r, i, t, mono) {
-    // Each 2-column lane of the --graph text gets its own color.
-    const lanes = [];
-    for (let c = 0; c < r.graph.length; c += 2) lanes.push(div().text_color(t[LANES[(c / 2) % LANES.length]]).child(r.graph.slice(c, c + 2).replace("*", "●")));
-    const graph = h_flex().flex_none().font_family(mono).whitespace_nowrap().children(lanes);
-    if (!r.hash) return h_flex().w_full().h(22).flex_none().px(10).items_center().child(graph);
+  // Draws the --graph text of row i as lane-colored lines: | straight, / \ as S-curves, _ along the bottom, * a dot.
+  graphCell(i, t, width) {
+    const g = this.rows[i].graph, up = this.rows[i - 1]?.graph ?? "", down = this.rows[i + 1]?.graph ?? "";
+    const h = this.rows[i].hash ? ROW : LINK, x = (p) => p * CW + CW / 2;
+    const strokes = new Map(), dots = [];
+    const color = (p) => t[LANES[((p + 1) >> 1) % LANES.length]];
+    const line = (p) => { const c = color(p); if (!strokes.has(c)) strokes.set(c, PathBuilder.stroke(2)); return strokes.get(c); };
+    for (let p = 0; p < g.length; p++) {
+      const ch = g[p];
+      if (ch === "|") line(p).move_to(x(p), 0).line_to(x(p), h);
+      else if (ch === "/") line(p).move_to(x(p + 1), 0).cubic_bezier_to(x(p - 1), h, x(p + 1), h / 2, x(p - 1), h / 2);
+      else if (ch === "\\") line(p).move_to(x(p - 1), 0).cubic_bezier_to(x(p + 1), h, x(p - 1), h / 2, x(p + 1), h / 2);
+      else if (ch === "_") line(p).move_to(x(p - 1), h).line_to(x(p + 1), h);
+      else if (ch === "*") {
+        // Half lines only where the neighbor rows connect, so branch tips and roots end at the dot.
+        if ("|*".includes(up[p] ?? " ") || up[p - 1] === "\\" || up[p + 1] === "/") line(p).move_to(x(p), 0).line_to(x(p), h / 2);
+        if ("|*".includes(down[p] ?? " ") || down[p - 1] === "/" || down[p + 1] === "\\") line(p).move_to(x(p), h / 2).line_to(x(p), h);
+        // Unpushed commits get a hollow dot.
+        const hollow = this.unpushed.has(this.rows[i].full);
+        dots.push(div().absolute().left(x(p) - 5).top(h / 2 - 5).w(10).h(10).rounded_full().border_2()
+          .border_color(hollow ? color(p) : t.background).bg(hollow ? t.background : color(p)));
+      }
+    }
+    return div().relative().flex_none().w(width).h(h)
+      .children([...strokes].map(([c, b]) => window.paint_path(b.build(), c).absolute().top(0).left(0).size_full()))
+      .children(dots);
+  }
+
+  logRow(i, t, mono, width) {
+    const r = this.rows[i], graph = this.graphCell(i, t, width);
+    if (!r.hash) return h_flex().w_full().h(LINK).flex_none().px(10).child(graph);
     const small = (text, color) => div().flex_none().text_size(11).text_color(color).child(text);
-    return h_flex().id(`c-${i}`).w_full().h(22).flex_none().px(10).gap(8).items_center().cursor_pointer()
+    // The label once per branch tip; the rest of the unpushed run shows only as hollow dots.
+    const tip = r.refs.some((ref) => !ref.startsWith("tag: ") && !this.remotes.some((rm) => ref.replace("HEAD -> ", "").startsWith(`${rm}/`)));
+    return h_flex().id(`c-${i}`).w_full().h(ROW).flex_none().px(10).gap(8).items_center().cursor_pointer()
       .when(this.open === r.full, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.pick(r.full, cx))
       .child(graph)
       .when(this.wide, (e) => e.child(div().flex_none().font_family(mono).text_size(11.5).text_color(t.dim).child(r.hash)))
       .child(div().flex_1().min_w(0).truncate().child(r.subject))
       .children(r.refs.filter((ref) => !ref.endsWith("/HEAD")).map((ref) => this.refChip(ref, t)))
-      .when(this.unpushed.has(r.full), (e) => e.child(small("⬆ 未push", t.blocked)))
+      .when(tip && this.unpushed.has(r.full), (e) => e.child(small("↑ 未push", t.working)))
       .when(this.wide, (e) => e.child(small(r.author, t.dim).w(90).truncate()).child(small(r.when, t.dim).w(100).truncate()));
   }
 
   refChip(ref, t) {
     const head = ref.startsWith("HEAD -> "), tag = ref.startsWith("tag: "), name = ref.replace(/^(HEAD -> |tag: )/, "");
     const remote = !tag && this.remotes.some((r) => name.startsWith(`${r}/`)), gone = !tag && !remote && this.merged.has(name);
+    // HEAD gets a filled chip: the one ref the eye should find first.
     return div().flex_none().px(5).rounded(4).border_1().text_size(11)
-      .border_color(head || ref === "HEAD" ? t.accent : t.border).text_color(remote || tag ? t.dim : gone ? t.done : t.foreground)
+      .when(head || ref === "HEAD", (e) => e.bg(t.accent + "33"))
+      .border_color(head || ref === "HEAD" ? t.accent : t.border).text_color(remote || tag ? t.dim : gone ? t.muted : t.foreground)
       .child(gone ? `${name} · 已合併，可刪` : tag ? `tag ${name}` : name);
   }
 

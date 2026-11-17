@@ -203,7 +203,8 @@ export default class GitGraph extends View {
 
   logRow(i, t, mono, width) {
     const r = this.rows[i], graph = this.graphCell(i, t, width);
-    if (!r.hash) return h_flex().w_full().h(LINK).flex_none().px(10).child(graph);
+    // Same transparent left border as commit rows, or link-row lines sit 2px left of the dots.
+    if (!r.hash) return h_flex().w_full().h(LINK).flex_none().px(10).border_l(2).border_color("#00000000").child(graph);
     const small = (text, color) => div().flex_none().text_size(11).text_color(color).child(text);
     // The label once per branch tip; the rest of the unpushed run shows only as hollow dots.
     const tip = r.refs.some((ref) => !ref.startsWith("tag: ") && !this.remotes.some((rm) => ref.replace("HEAD -> ", "").startsWith(`${rm}/`)));

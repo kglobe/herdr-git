@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseLog, remoteKind, ciState, remoteData, summary, showRows, samePath, parseWorktrees } from "../shared/git.js";
+import { parseLog, remoteKind, ciState, remoteData, summary, showRows, parseShow, samePath, parseWorktrees } from "../shared/git.js";
 
 const US = "\x1f";
 
@@ -83,9 +83,20 @@ test("parseWorktrees reads porcelain blocks; detached ones say so", () => {
   assert.deepEqual(parseWorktrees(text), [{ path: "D:/GitHub/x", branch: "main" }, { path: "C:/Users/u/.herdr/worktrees/x/wayne/y", branch: "(detached)" }]);
 });
 
-test("showRows numbers only hunk lines, not the stat block", () => {
-  const rows = showRows(["commit abc", " a.js | 2 +-", "diff --git a/a.js b/a.js", "@@ -3,2 +3,2 @@", " keep", "-old", "+new"]);
-  assert.deepEqual(rows.map((r) => [r.kind, r.number]), [["", undefined], ["", undefined], ["", undefined], ["@", undefined], [" ", 3], ["-", 4], ["+", 4]]);
+test("showRows numbers hunk lines, turns diff --git into a file header and drops index/---/+++", () => {
+  const rows = showRows(["diff --git a/a.js b/a.js", "index 1..2 100644", "--- a/a.js", "+++ b/a.js", "@@ -3,2 +3,2 @@ def f():", " keep", "-old", "+new"]);
+  assert.deepEqual(rows.map((r) => [r.kind, r.old, r.new, r.text]),
+    [["gap", undefined, undefined, " "], ["file", undefined, undefined, "a.js"], ["@", undefined, undefined, "@@ -3 +3 @@  def f():"], [" ", 3, 3, "keep"], ["-", 4, undefined, "old"], ["+", undefined, 4, "new"]]);
+});
+
+test("parseShow splits header, message, trailers, numstat and patch", () => {
+  const text = "abc1234\x1fWayne\x1f2026-11-17 12:04\x1ffix: x\n\nwhy\n\nCo-Authored-By: C <c@x>\n\x1e\n2\t1\ta.js\n-\t-\timg.png\n\ndiff --git a/a.js b/a.js\n@@ -1 +1 @@\n-a\n+b\n";
+  assert.deepEqual(parseShow(text).map((r) => r.kind),
+    ["title", "meta", "body", "files", "stat", "stat", "trailer", "gap", "file", "@", "-", "+"]);
+  const rows = parseShow(text);
+  assert.deepEqual([rows[1].hash, rows[1].text], ["abc1234", "Wayne · 2026-11-17 12:04"]);
+  assert.deepEqual([rows[3].add, rows[3].del, rows[3].text], ["2", "1", "2 個檔案"]);
+  assert.deepEqual([rows[4].add, rows[4].del, rows[4].text, rows[4].max], ["2", "1", "a.js", 3]);
 });
 
 test("samePath ignores slash direction, case and trailing slash", () => {

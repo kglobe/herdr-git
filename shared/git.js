@@ -70,18 +70,52 @@ export function summary(remote, branch, deletable) {
 // Text draws a tab as nothing: pad each to the next 4-column stop. Copied from the changes mod.
 const untab = (text) => text.replace(/[^\t]*\t/g, (s) => s.slice(0, -1).padEnd((s.length - 1) - (s.length - 1) % 4 + 4));
 
-// `git show --stat -p` rows, numbered inside hunks only (the changes mod's diffRows numbers every line).
+// Patch lines that only repeat what the file header and line numbers already say.
+const NOISE = /^(index |--- |\+\+\+ |(new|deleted) file mode|old mode|new mode|similarity index|rename (from|to) )/;
+
+// Patch rows, numbered (old and new side) inside hunks only (the changes mod's diffRows numbers every line).
+// "diff --git" becomes a file header; a hunk header keeps only its function context.
 export function showRows(lines) {
   let old = 0, next = 0, hunk = false;
-  return lines.map((line) => {
-    if (line.startsWith("diff ")) hunk = false;
-    const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(line);
-    if (match) { old = +match[1]; next = +match[2]; hunk = true; return { kind: "@", text: line }; }
+  return lines.flatMap((line) => {
+    const file = /^diff --git a\/.* b\/(.*)$/.exec(line);
+    if (file) { hunk = false; return [{ kind: "gap", text: " " }, { kind: "file", text: file[1] }]; }
+    const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)$/.exec(line);
+    if (match) { old = +match[1]; next = +match[2]; hunk = true; return { kind: "@", text: `@@ -${old} +${next} @@  ${untab(match[3])}`.trimEnd() }; }
+    if (!hunk && NOISE.test(line)) return [];
     const kind = line[0];
     if (!hunk || !"-+ ".includes(kind)) return { kind: "", text: untab(line) || " " };
-    const number = kind === "-" ? old++ : kind === "+" ? next++ : (old++, next++);
-    return { kind, number, text: untab(line.slice(1)) || " " };
+    return { kind, old: kind === "+" ? undefined : old++, new: kind === "-" ? undefined : next++, text: untab(line.slice(1)) || " " };
   });
+}
+
+const RS = "\x1e";
+export const SHOW_FORMAT = `--format=%h${US}%an${US}%ad${US}%B${RS}`;
+
+// `git show SHOW_FORMAT --date=... --numstat -p` → detail rows: title, meta, message body, per-file +/- counts, then the patch.
+export function parseShow(text) {
+  const at = text.indexOf(RS);
+  const [hash, author, date, ...msg] = text.slice(0, at).split(US);
+  const [subject, ...body] = msg.join(US).trim().split("\n");
+  const lines = text.slice(at + 1).replace(/^\n+/, "").replace(/\n$/, "").split("\n");
+  const cut = lines.findIndex((l) => l.startsWith("diff "));
+  const stat = (cut < 0 ? lines : lines.slice(0, cut)).filter(Boolean).map((l) => {
+    const [add, del, ...path] = l.split("\t");
+    return { kind: "stat", add, del, text: path.join("\t") };
+  });
+  // Binary files count "-": they add nothing to the totals or the bar scale.
+  const sum = (key) => stat.reduce((n, s) => n + (+s[key] || 0), 0);
+  const max = Math.max(1, ...stat.map((s) => (+s.add || 0) + (+s.del || 0)));
+  for (const s of stat) s.max = max;
+  if (stat.length) stat.unshift({ kind: "files", add: String(sum("add")), del: String(sum("del")), text: `${stat.length} 個檔案` });
+  const message = body.join("\n").trim();
+  const prose = message ? message.split("\n").map((l) => ({ kind: /^[\w-]+-by: /i.test(l) ? "trailer" : "body", text: untab(l) || " " })) : [];
+  // Trailers (Co-Authored-By…) go after the file list: they say least about what changed.
+  return [
+    { kind: "title", text: subject || " " }, { kind: "meta", hash, text: `${author} · ${date}` },
+    ...prose.filter((r) => r.kind === "body").filter((r, i, a) => a.slice(i).some((x) => x.text.trim())), ...stat, ...prose.filter((r) => r.kind === "trailer"),
+    ...showRows(cut < 0 ? [] : lines.slice(cut)),
+  ];
 }
 
 export function parseWorktrees(text) {

@@ -2,22 +2,47 @@ import { View, div, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { spaces, run, theme, settings, shared, watchFolder, checking } from "herdr";
 // git.js / repo.js come from the repo's shared/ folder: install.ps1 copies them in (mods can't import across folders).
-import { LOG_FORMAT, ICON, firstLine, parseLog, parseWorktrees, showRows, samePath, defaultBase, mergedBranches } from "./git.js";
+import { LOG_FORMAT, SHOW_FORMAT, ICON, firstLine, parseLog, parseWorktrees, parseShow, samePath, defaultBase, mergedBranches } from "./git.js";
 import { repoCwd, remoteKey, gitIn } from "./repo.js";
 
 const LIMIT = 300;
 const LANES = ["ansi4", "ansi2", "ansi3", "ansi5", "ansi6", "ansi1"];
 // Graph geometry: px per --graph text column, commit row height, connector-only row height.
-const CW = 7, ROW = 22, LINK = 12;
+const CW = 7, ROW = 22, LINK = 12, DETAIL_ROW = 22;
+const FADE = Array.from({ length: 12 }, (_, i) => Math.round((255 * (i + 1)) / 13).toString(16).padStart(2, "0"));
 // Only ref moves change the graph; index, objects, logs and FETCH_HEAD churn on every IDE poll or gc.
 const REF_CHANGE = /[\\/](HEAD|packed-refs)$|[\\/]refs[\\/]/;
 
-// Same look as the changes mod's diff rows.
-function diffRow({ kind, number, text }, t) {
-  if (kind === "@") return div().w_full().px(12).h(20).flex_none().truncate().bg(t.raised).text_color(t.dim).child(text);
-  return h_flex().w_full().h(20).flex_none().gap(10).when(kind === "+", (e) => e.bg(t.ansi2 + "18")).when(kind === "-", (e) => e.bg(t.ansi1 + "18"))
-    .child(div().w(30).flex_none().text_right().text_color(t.dim).child(number === undefined ? "" : String(number)))
-    .child(div().flex_1().min_w(0).truncate().child(text));
+// One row of the commit detail (parseShow kinds). Message rows use the UI font; file and code rows use mono.
+// Code rows keep the changes mod's diff look.
+// git --stat's bar in 5 cells: length by the file's share of the biggest change, green/red by its own mix.
+function statBar(add, del, max, t) {
+  const a = +add || 0, d = +del || 0, n = a + d ? Math.max(1, Math.round((5 * (a + d)) / max)) : 0, g = n && Math.round((n * a) / (a + d));
+  return h_flex().w(38).flex_none().gap(2).children([0, 1, 2, 3, 4].map((i) =>
+    div().w(6).h(6).rounded(1).bg(i < g ? t.ansi2 : i < n ? t.ansi1 : t.border)));
+}
+
+function diffRow({ kind, old, new: next, hash, text, add, del, max }, t, mono) {
+  const row = () => h_flex().w_full().h(DETAIL_ROW).flex_none().px(14).items_center();
+  const num = (n) => div().w(32).flex_none().text_right().text_color(t.dim).child(n === undefined ? "" : String(n));
+  if (kind === "gap") return row();
+  if (kind === "title") return row().text_size(13.5).font_semibold().child(div().truncate().child(text));
+  if (kind === "meta") return row().gap(8).text_size(11.5).text_color(t.dim)
+    .when(Boolean(hash), (e) => e.child(div().font_family(mono).text_color(t.accent).child(hash))).child(text);
+  if (kind === "body") return row().text_size(12).text_color(t.muted).child(text);
+  if (kind === "trailer") return row().text_size(11).text_color(t.dim).child(text);
+  if (kind === "stat" || kind === "files") return row().gap(6).font_family(mono).text_size(11.5)
+    .child(div().w(36).flex_none().text_right().text_color(add === "0" ? t.dim : t.ansi2).child(add === "-" ? "" : `+${add}`))
+    .child(div().w(36).flex_none().text_right().text_color(del === "0" ? t.dim : t.ansi1).child(del === "-" ? "bin" : `−${del}`))
+    .child(kind === "stat" ? statBar(add, del, max, t) : div().w(38).flex_none())
+    .child(div().flex_1().min_w(0).truncate().when(kind === "files", (e) => e.font_semibold()).child(text));
+  if (kind === "file") return row().bg(t.raised).border_t(1).border_color(t.border).font_family(mono).text_size(11.5).font_semibold().child(text);
+  if (kind === "@") return row().bg(t.ansi4 + "14").font_family(mono).text_size(11).text_color(t.dim).child(div().truncate().child(text));
+  return h_flex().w_full().h(DETAIL_ROW).flex_none().gap(8).items_center().font_family(mono).text_size(11)
+    .when(kind === "+", (e) => e.bg(t.ansi2 + "30")).when(kind === "-", (e) => e.bg(t.ansi1 + "30"))
+    .child(h_flex().h_full().flex_none().items_center().gap(4).pr(6).bg(t.background + "a0").child(num(old)).child(num(next)))
+    .child(div().w(10).flex_none().text_color(kind === "+" ? t.ansi2 : kind === "-" ? t.ansi1 : t.dim).child(kind === " " ? "" : kind))
+    .child(div().flex_1().min_w(0).truncate().text_color(kind === "" ? t.muted : t.foreground).child(text));
 }
 
 // Read-only view of the focused repo: commit graph (local) and PR/MR + CI (remote data that git-status fetches).
@@ -88,11 +113,11 @@ export default class GitGraph extends View {
     if (!this.open) return;
     const root = this.root;
     cx.spawn(async (cx) => {
-      const r = await gitIn(root)(["show", "--stat", "-p", "--no-color", "--no-ext-diff", "--no-textconv", hash]).catch(() => null);
+      const r = await gitIn(root)(["show", SHOW_FORMAT, "--date=format-local:%Y-%m-%d %H:%M", "--numstat", "-p", "--diff-merges=first-parent", "--no-color", "--no-ext-diff", "--no-textconv", hash]).catch(() => null);
       if (this.open !== hash) return;
-      const lines = r?.code === 0 ? r.stdout.replace(/\n$/, "").split("\n").slice(0, 3000) : ["無法讀取這個 commit"];
-      this.detail = showRows(lines.map((l) => (l.length > 4000 ? l.slice(0, 4000) + "…" : l)));
-      this.detailWidth = Math.max(300, ...this.detail.map((row) => (row.text.length + 1) * 7 + 50));
+      const rows = r?.code === 0 ? parseShow(r.stdout).slice(0, 3000) : [{ kind: "meta", text: "無法讀取這個 commit" }];
+      this.detail = rows.map((row) => (row.text.length > 4000 ? { ...row, text: row.text.slice(0, 4000) + "…" } : row));
+      this.detailWidth = Math.max(300, ...this.detail.map((row) => (row.text.length + 1) * 7 + 100));
       cx.notify();
     });
   }
@@ -112,7 +137,7 @@ export default class GitGraph extends View {
       .bg(on ? t.selected : t.background).text_color(on ? t.foreground : t.muted).hover((s) => s.bg(t.hover)).on_click(action).child(label);
     const tab = (id, label) => button(`tab-${id}`, label, this.tab === id, (_e, cx) => { this.tab = id; cx.notify(); });
     return v_flex().id("git-graph").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12.5)
-      .on_size_change((size, cx) => { const wide = size.width >= 720; if (wide !== this.wide) { this.wide = wide; cx.notify(); } })
+      .on_size_change((size, cx) => { this.width = size.width; const wide = size.width >= 720; if (wide !== this.wide) { this.wide = wide; cx.notify(); } })
       .child(h_flex().h(38).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
         .child(tab("graph", "Graph")).child(tab("pr", "PR/MR")).child(div().flex_1())
         .child(div().min_w(0).truncate().text_color(t.dim).child(this.root?.split(/[\\/]/).pop() ?? ""))
@@ -137,10 +162,14 @@ export default class GitGraph extends View {
         // Plain rows, as the changes mod's file list: v_virtual_list drew nothing here, and LIMIT keeps it at 300 rows.
         .child(v_flex().id("git-log").absolute().inset_0().overflow_y_scroll().children(this.rows.map((r, i) => this.logRow(i, t, mono, gw))))
         .child(Scrollbar.vertical("git-log").absolute().inset_0()))
-      .when(Boolean(this.open), (el) => el.child(div().flex_1().min_h(0).relative().border_t(1).border_color(t.border).font_family(mono).text_size(11)
+      .when(Boolean(this.open), (el) => el.child(div().flex_1().min_h(0).relative().border_t(1).border_color(t.accent).bg(t.chrome)
         .child(div().id("git-show-x").size_full().overflow_x_scrollbar()
-          .child(div().w_full().min_w(this.detailWidth).h_full().child(v_virtual_list("git-show", this.detail.length, 20, (i) => String(i),
-            (range) => this.detail.slice(range.start, range.end).map((row) => diffRow(row, t))).size_full())))
+          .child(div().w_full().min_w(this.detailWidth).h_full().pt(6).child(v_virtual_list("git-show", this.detail.length, DETAIL_ROW, (i) => String(i),
+            (range) => this.detail.slice(range.start, range.end).map((row) => diffRow(row, t, mono))).size_full())))
+        // Wider than the pane: fade the right edge so the cut-off reads as "scrolls sideways".
+        // bg() takes only a color: thin strips of rising alpha stand in for a gradient (wide ones show as steps).
+        .when(this.detailWidth > (this.width ?? Infinity), (e) => e.child(h_flex().absolute().top_0().bottom_0().right_0()
+          .children(FADE.map((a) => div().w(3).h_full().bg(t.chrome + a)))))
         .child(Scrollbar.vertical("git-show").viewport_from_layout().absolute().inset_0())));
   }
 
@@ -179,6 +208,7 @@ export default class GitGraph extends View {
     // The label once per branch tip; the rest of the unpushed run shows only as hollow dots.
     const tip = r.refs.some((ref) => !ref.startsWith("tag: ") && !this.remotes.some((rm) => ref.replace("HEAD -> ", "").startsWith(`${rm}/`)));
     return h_flex().id(`c-${i}`).w_full().h(ROW).flex_none().px(10).gap(8).items_center().cursor_pointer()
+      .border_l(2).border_color(this.open === r.full ? t.accent : "#00000000")
       .when(this.open === r.full, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.pick(r.full, cx))
       .child(graph)
       .when(this.wide, (e) => e.child(div().flex_none().font_family(mono).text_size(11.5).text_color(t.dim).child(r.hash)))

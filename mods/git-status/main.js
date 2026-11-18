@@ -2,7 +2,7 @@ import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { panes, focused, exec, run, theme, shared, setShared, nextCommand, checking } from "herdr";
 // git.js / repo.js come from the repo's shared/ folder: install.ps1 copies them in (mods can't import across folders).
-import { firstLine, remoteKind, remoteData, summary, defaultBase, mergedBranches } from "./git.js";
+import { firstLine, remoteKind, remoteData, summary, defaultBase, mergedBranches, fetchError, fetchDue, fetchResult, fetchStopped } from "./git.js";
 import { repoCwd, remoteKey, gitIn } from "./repo.js";
 
 const CLI = {
@@ -16,6 +16,7 @@ const CLI = {
 export default class GitStatus extends View {
   init(_props, cx) {
     this.ticks = 0;
+    this.fetches = new Map();
     if (checking()) return;
     cx.timer.every(60000, (cx) => {
       this.ticks++;
@@ -25,7 +26,8 @@ export default class GitStatus extends View {
       for (;;) {
         const c = await nextCommand();
         if (c === "open") this.open();
-        if (c === "refresh") this.refresh(cx, true);
+        // The 重新整理 button: also fetches now, restarting an auto-fetch that stopped after 3 failures.
+        if (c === "refresh") { this.fetches.delete(this.root); this.refresh(cx, true); }
       }
     });
   }
@@ -58,13 +60,26 @@ export default class GitStatus extends View {
         this.deletable = base ? (await mergedBranches(git, base, branch)).length : 0;
         const moved = root !== this.root;
         this.root = root; this.branch = branch;
-        if (remote || moved) await this.fetchRemote(root, git);
+        const due = panes().some((p) => p.mod === "git-graph") && fetchDue(this.fetches.get(root), Date.now());
+        await Promise.all([due && this.fetch(root, git), (remote || moved) && this.fetchRemote(root, git)]);
       } catch { /* exec couldn't start (git missing): show nothing */ }
       finally {
         this.loading = false; cx.notify();
         if (this.again) { this.again = false; this.refresh(cx, true); }
       }
     });
+  }
+
+  // `git fetch origin` so the graph shows remote commits. Nothing here can answer a prompt, so none may appear:
+  // no GCM window, SSH in batch mode (keeping the user's own ssh command), no auto gc holding locks.
+  // exec, not gitIn: this writes refs (READ's --no-optional-locks is for reads) and needs a timeout.
+  async fetch(root, git) {
+    const ssh = (await git(["config", "core.sshCommand"])).stdout.trim() || "ssh";
+    const r = await exec("git", ["-c", "credential.interactive=never", "-c", `core.sshCommand=${ssh} -o BatchMode=yes -o ConnectTimeout=10`,
+      "-c", "gc.auto=0", "-c", "maintenance.auto=false", "fetch", "--quiet", "origin"], { cwd: root, timeout: 30000 })
+      .catch((e) => ({ code: 1, stderr: String(e) }));
+    const error = r.code ? fetchError(r.stderr || r.stdout) : null;
+    this.fetches.set(root, fetchResult(this.fetches.get(root), error, Date.now()));
   }
 
   async fetchRemote(root, git) {
@@ -94,7 +109,8 @@ export default class GitStatus extends View {
     if (this.cwd !== this.context) this.refresh(cx, false);
     const t = theme(), bar = h_flex().size_full().px(14).items_center().justify_end().bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8);
     if (!this.root) return bar;
-    const text = summary(shared(remoteKey(this.root)), this.branch, this.deletable);
+    const f = this.fetches.get(this.root);
+    const text = summary(shared(remoteKey(this.root)), this.branch, this.deletable, fetchStopped(f) ? f.error : null);
     return bar.child(div().id("git-status").cursor_pointer().text_color(text?.includes("✗") ? t.ansi1 : text ? t.muted : t.dim)
       .hover((s) => s.text_color(t.foreground)).on_click(() => this.open()).child(text ?? "git"));
   }

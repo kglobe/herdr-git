@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseLog, remoteKind, ciState, remoteData, summary, showRows, parseShow, samePath, parseWorktrees } from "../shared/git.js";
+import { parseLog, remoteKind, ciState, remoteData, summary, showRows, parseShow, samePath, parseWorktrees, fetchError, fetchDue, fetchResult, FETCH_EVERY } from "../shared/git.js";
 
 const US = "\x1f";
 
@@ -105,4 +105,33 @@ test("samePath ignores slash direction, case and trailing slash", () => {
   assert.equal(samePath("D:/GitHub/x", "d:\\github\\x\\"), true);
   assert.equal(samePath("D:/GitHub/x", "D:/GitHub/y"), false);
   assert.equal(samePath(null, "D:/x"), false);
+});
+
+test("fetchError names auth and network failures, else says fetch failed", () => {
+  assert.equal(fetchError("remote: HTTP Basic: Access denied\nfatal: Authentication failed for 'https://x/'"), "授權失敗：remote: HTTP Basic: Access denied");
+  assert.equal(fetchError("git@x: Permission denied (publickey).\nfatal: Could not read from remote repository."), "授權失敗：git@x: Permission denied (publickey).");
+  assert.equal(fetchError("fatal: could not read Username for 'https://x': terminal prompts disabled"), "授權失敗：fatal: could not read Username for 'https://x': terminal prompts disabled");
+  assert.equal(fetchError("fatal: unable to access 'https://x/': Could not resolve host: x"), "連不到遠端：fatal: unable to access 'https://x/': Could not resolve host: x");
+  assert.equal(fetchError("ssh: connect to host x port 22: Connection timed out"), "連不到遠端：ssh: connect to host x port 22: Connection timed out");
+  assert.equal(fetchError("fatal: couldn't find remote ref main"), "fetch 失敗：fatal: couldn't find remote ref main");
+});
+
+test("summary appends a stopped fetch's error next to the PR and CI badges", () => {
+  const remote = { kind: "github", prs: [{ id: "#7", branch: "f", ci: "ok" }], pipelines: [] };
+  assert.equal(summary(remote, "f", 0, "授權失敗：x"), "PR #7 ✓ · ✗ 授權失敗：x，按 Git 面板的重新整理重試");
+  assert.equal(summary(null, "f", 0, "連不到遠端：y"), "✗ 連不到遠端：y，按 Git 面板的重新整理重試");
+  assert.equal(summary(remote, "f", 0, null), "PR #7 ✓");
+});
+
+test("auto-fetch runs every 5 min, stops after 3 straight failures, a success resets", () => {
+  const t0 = 1_000_000;
+  assert.equal(fetchDue(undefined, t0), true);
+  let s = fetchResult(undefined, "x", t0);
+  assert.equal(fetchDue(s, t0 + FETCH_EVERY - 1), false);
+  assert.equal(fetchDue(s, t0 + FETCH_EVERY), true);
+  s = fetchResult(s, "x", t0 + FETCH_EVERY);
+  s = fetchResult(s, "y", t0 + 2 * FETCH_EVERY);
+  assert.deepEqual(s, { at: t0 + 2 * FETCH_EVERY, fails: 3, error: "y" });
+  assert.equal(fetchDue(s, t0 + 10 * FETCH_EVERY), false);
+  assert.deepEqual(fetchResult({ at: 0, fails: 2, error: "x" }, null, t0), { at: t0, fails: 0, error: null });
 });

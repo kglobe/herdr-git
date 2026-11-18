@@ -143,7 +143,7 @@ export default class GitGraph extends View {
       .child(h_flex().h(38).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
         .child(tab("graph", "Graph")).child(tab("pr", "PR/MR")).child(div().flex_1())
         .child(div().min_w(0).truncate().text_color(t.dim).child(this.root?.split(/[\\/]/).pop() ?? ""))
-        .child(button("git-refresh", "重新整理", false, (_e, cx) => (this.tab === "pr" ? run("git-status.refresh") : this.refresh(cx)))))
+        .child(button("git-refresh", "重新整理", false, (_e, cx) => { run("git-status.refresh"); if (this.tab !== "pr") this.refresh(cx); })))
       .child(this.tab === "graph" ? this.graphView(t, mono) : this.prView(t));
   }
 

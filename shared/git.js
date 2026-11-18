@@ -58,12 +58,13 @@ export function remoteData(kind, prs, runs) {
 }
 
 // The status-bar text: only what the spaces sidebar doesn't show. Null when there's nothing to say.
-export function summary(remote, branch, deletable) {
+export function summary(remote, branch, deletable, fetchErr) {
   const pr = remote?.prs?.find((p) => p.branch === branch), pipe = remote?.pipelines?.find((p) => p.ref === branch);
   const parts = [
     pr && `${remote.kind === "github" ? "PR" : "MR"} ${pr.id} ${ICON[pr.ci]}`,
     pipe && `CI ${ICON[pipe.ci]}`,
     deletable > 0 && `${deletable} 分支可刪`,
+    fetchErr && `${ICON.fail} ${fetchErr}，按 Git 面板的重新整理重試`,
   ].filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
 }
@@ -141,3 +142,17 @@ export async function mergedBranches(git, base, current) {
   const short = base.replace(/^origin\//, "");
   return r.code === 0 ? r.stdout.split("\n").map((s) => s.trim()).filter((b) => b && b !== short && b !== current) : [];
 }
+
+// Background fetch: auth is checked first because a denied SSH key also says "Could not read from remote repository".
+const FETCH_ERRORS = [
+  [/authentication failed|access denied|permission denied|could not read (username|password)|terminal prompts disabled|host key verification failed|\b40[13]\b/i, "授權失敗"],
+  [/could not resolve host|timed out|connection (refused|reset)|failed to connect|network is unreachable|could not read from remote/i, "連不到遠端"],
+];
+export const fetchError = (stderr) => `${FETCH_ERRORS.find(([re]) => re.test(stderr))?.[1] ?? "fetch 失敗"}：${firstLine(stderr)}`;
+
+// Per-repo auto-fetch state { at, fails, error }: due every FETCH_EVERY, stopped after 3 straight failures
+// (until the state is cleared); `error` is null on success.
+export const FETCH_EVERY = 5 * 60000;
+export const fetchStopped = (s) => s?.fails >= 3;
+export const fetchDue = (s, now) => !s || (!fetchStopped(s) && now - s.at >= FETCH_EVERY);
+export const fetchResult = (s, error, now) => ({ at: now, fails: error ? (s?.fails ?? 0) + 1 : 0, error });

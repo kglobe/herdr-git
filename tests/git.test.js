@@ -114,6 +114,7 @@ test("fetchError names auth and network failures, else says fetch failed", () =>
   assert.equal(fetchError("fatal: unable to access 'https://x/': Could not resolve host: x"), "連不到遠端：fatal: unable to access 'https://x/': Could not resolve host: x");
   assert.equal(fetchError("ssh: connect to host x port 22: Connection timed out"), "連不到遠端：ssh: connect to host x port 22: Connection timed out");
   assert.equal(fetchError("fatal: couldn't find remote ref main"), "fetch 失敗：fatal: couldn't find remote ref main");
+  assert.equal(fetchError("fatal: 'origin' does not appear to be a git repository\nfatal: Could not read from remote repository."), "fetch 失敗：fatal: 'origin' does not appear to be a git repository");
 });
 
 test("summary appends a stopped fetch's error next to the PR and CI badges", () => {

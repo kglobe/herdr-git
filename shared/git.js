@@ -146,7 +146,7 @@ export async function mergedBranches(git, base, current) {
 // Background fetch: auth is checked first because a denied SSH key also says "Could not read from remote repository".
 const FETCH_ERRORS = [
   [/authentication failed|access denied|permission denied|could not read (username|password)|terminal prompts disabled|host key verification failed|\b40[13]\b/i, "授權失敗"],
-  [/could not resolve host|timed out|connection (refused|reset)|failed to connect|network is unreachable|could not read from remote/i, "連不到遠端"],
+  [/could not resolve host|timed out|connection (refused|reset)|failed to connect|network is unreachable/i, "連不到遠端"],
 ];
 export const fetchError = (stderr) => `${FETCH_ERRORS.find(([re]) => re.test(stderr))?.[1] ?? "fetch 失敗"}：${firstLine(stderr)}`;
 

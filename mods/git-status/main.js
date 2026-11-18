@@ -27,7 +27,7 @@ export default class GitStatus extends View {
         const c = await nextCommand();
         if (c === "open") this.open();
         // The 重新整理 button: also fetches now, restarting an auto-fetch that stopped after 3 failures.
-        if (c === "refresh") { this.fetches.delete(this.root); this.refresh(cx, true); }
+        if (c === "refresh") { this.forceFetch = true; this.refresh(cx, true); }
       }
     });
   }
@@ -60,6 +60,8 @@ export default class GitStatus extends View {
         this.deletable = base ? (await mergedBranches(git, base, branch)).length : 0;
         const moved = root !== this.root;
         this.root = root; this.branch = branch;
+        // Cleared here, not in the command handler: a refresh already running may be for another repo.
+        if (this.forceFetch) { this.forceFetch = false; this.fetches.delete(root); }
         const due = panes().some((p) => p.mod === "git-graph") && fetchDue(this.fetches.get(root), Date.now());
         await Promise.all([due && this.fetch(root, git), (remote || moved) && this.fetchRemote(root, git)]);
       } catch { /* exec couldn't start (git missing): show nothing */ }
@@ -74,6 +76,8 @@ export default class GitStatus extends View {
   // no GCM window, SSH in batch mode (keeping the user's own ssh command), no auto gc holding locks.
   // exec, not gitIn: this writes refs (READ's --no-optional-locks is for reads) and needs a timeout.
   async fetch(root, git) {
+    // No origin: fetchRemote already says so; count it as a quiet success so it isn't retried every tick.
+    if ((await git(["remote", "get-url", "origin"])).code !== 0) return this.fetches.set(root, fetchResult(undefined, null, Date.now()));
     const ssh = (await git(["config", "core.sshCommand"])).stdout.trim() || "ssh";
     const r = await exec("git", ["-c", "credential.interactive=never", "-c", `core.sshCommand=${ssh} -o BatchMode=yes -o ConnectTimeout=10`,
       "-c", "gc.auto=0", "-c", "maintenance.auto=false", "fetch", "--quiet", "origin"], { cwd: root, timeout: 30000 })

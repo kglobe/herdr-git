@@ -7,7 +7,8 @@ import { repoCwd, remoteKey, gitIn } from "./repo.js";
 
 const LIMIT = 300;
 // Fixed palette, not the terminal's ANSI colors: themes often mute those until adjacent lanes blur together.
-const LANES = ["#2dd4bf", "#a78bfa", "#fb923c", "#f472b6", "#facc15", "#60a5fa"];
+// Matches agent-home's graphite-cyan theme (cyan accent, no purple); warm and cool alternate so neighbours differ.
+const LANES = ["#5cc8d6", "#e5c07b", "#7aa7ff", "#f08a7e", "#8fc98a", "#e58fb0"];
 const laneColor = (p) => LANES[((p + 1) >> 1) % LANES.length];
 // Graph geometry: px per --graph text column, commit row height, connector-only row height.
 const CW = 7, ROW = 22, LINK = 12, DETAIL_ROW = 22;

@@ -1,8 +1,8 @@
-import { View, div, PathBuilder } from "gpui-kit";
+import { View, div, svg, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { spaces, run, theme, settings, shared, watchFolder, checking } from "herdr";
 // git.js / repo.js come from the repo's shared/ folder: install.ps1 copies them in (mods can't import across folders).
-import { LOG_FORMAT, SHOW_FORMAT, ICON, firstLine, parseLog, parseWorktrees, parseShow, samePath, defaultBase, mergedBranches } from "./git.js";
+import { LOG_FORMAT, SHOW_FORMAT, ICON, firstLine, parseLog, ago, splitSubject, parseWorktrees, parseShow, samePath, defaultBase, mergedBranches } from "./git.js";
 import { repoCwd, remoteKey, gitIn } from "./repo.js";
 
 const LIMIT = 300;
@@ -144,7 +144,9 @@ export default class GitGraph extends View {
       .child(h_flex().h(38).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
         .child(tab("graph", "Graph")).child(tab("pr", "PR/MR")).child(div().flex_1())
         .child(div().min_w(0).truncate().text_color(t.dim).child(this.root?.split(/[\\/]/).pop() ?? ""))
-        .child(button("git-refresh", "重新整理", false, (_e, cx) => { run("git-status.refresh"); if (this.tab !== "pr") this.refresh(cx); })))
+        .child(div().id("git-refresh").size(24).flex().items_center().justify_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
+          .on_click((_e, cx) => { run("git-status.refresh"); if (this.tab !== "pr") this.refresh(cx); })
+          .child(svg("mods/git-graph/refresh.svg").size(14).text_color(t.muted))))
       .child(this.tab === "graph" ? this.graphView(t, mono) : this.prView(t));
   }
 
@@ -163,7 +165,7 @@ export default class GitGraph extends View {
         }))))
       .child(div().flex_1().min_h(0).relative()
         // Plain rows, as the changes mod's file list: v_virtual_list drew nothing here, and LIMIT keeps it at 300 rows.
-        .child(v_flex().id("git-log").absolute().inset_0().overflow_y_scroll().children(this.rows.map((r, i) => this.logRow(i, t, mono, gw))))
+        .child(v_flex().id("git-log").absolute().inset_0().overflow_y_scroll().children(this.rows.map((r, i) => this.logRow(i, t, mono, gw, Date.now() / 1000))))
         .child(Scrollbar.vertical("git-log").absolute().inset_0()))
       .when(Boolean(this.open), (el) => el.child(div().flex_1().min_h(0).relative().border_t(1).border_color(t.accent).bg(t.chrome)
         .child(div().id("git-show-x").size_full().overflow_x_scrollbar()
@@ -206,31 +208,38 @@ export default class GitGraph extends View {
       .children(dots);
   }
 
-  logRow(i, t, mono, width) {
+  logRow(i, t, mono, width, now) {
     const r = this.rows[i], graph = this.graphCell(i, t, width);
     // Same transparent left border as commit rows, or link-row lines sit 2px left of the dots.
     if (!r.hash) return h_flex().w_full().h(LINK).flex_none().px(10).border_l(2).border_color("#00000000").child(graph);
     const small = (text, color) => div().flex_none().text_size(11).text_color(color).child(text);
     // The label once per branch tip; the rest of the unpushed run shows only as hollow dots.
     const tip = r.refs.some((ref) => !ref.startsWith("tag: ") && !this.remotes.some((rm) => ref.replace("HEAD -> ", "").startsWith(`${rm}/`)));
+    // Every row starts with feat(x): / fix(x): — faint, so the eye lands on what changed.
+    const [prefix, rest] = splitSubject(r.subject);
     return h_flex().id(`c-${i}`).w_full().h(ROW).flex_none().px(10).gap(8).items_center().cursor_pointer()
       .border_l(2).border_color(this.open === r.full ? t.accent : "#00000000")
       .when(this.open === r.full, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.pick(r.full, cx))
       .child(graph)
       .when(this.wide, (e) => e.child(div().flex_none().font_family(mono).text_size(11.5).text_color(t.dim).child(r.hash)))
-      .child(div().flex_1().min_w(0).truncate().child(r.subject))
+      .child(h_flex().flex_1().min_w(0)
+        .when(Boolean(prefix), (e) => e.child(div().flex_none().text_color(t.muted).child(prefix)))
+        .child(div().min_w(0).truncate().child(rest)))
       .children(r.refs.filter((ref) => !ref.endsWith("/HEAD")).map((ref) => this.refChip(ref, t, laneColor(r.graph.indexOf("*")))))
       .when(tip && this.unpushed.has(r.full), (e) => e.child(small("↑ 未push", t.working)))
-      .when(this.wide, (e) => e.child(small(r.author, t.dim).w(90).truncate()).child(small(r.when, t.dim).w(100).truncate()));
+      // Time always (narrow panes too), author only when there's room.
+      .when(this.wide, (e) => e.child(small(r.author, t.muted).w(90).truncate()))
+      .child(small(ago(+r.when, now), t.muted).w(28).text_right());
   }
 
   refChip(ref, t, lane) {
     const head = ref.startsWith("HEAD -> ") || ref === "HEAD", tag = ref.startsWith("tag: "), name = ref.replace(/^(HEAD -> |tag: )/, "");
     const remote = !tag && this.remotes.some((r) => name.startsWith(`${r}/`)), gone = !tag && !remote && this.merged.has(name);
     // Chips take their lane's color so the eye can follow label to line; HEAD is filled, remotes and tags stay faint.
+    // HEAD's fill already marks it: no frame on top, or it's one more bright box beside the focus frame.
     return div().flex_none().px(5).rounded(4).border_1().text_size(11)
       .when(head, (e) => e.bg(lane + "33"))
-      .border_color(tag ? t.border : remote ? lane + "66" : lane)
+      .border_color(head ? "#00000000" : tag ? t.border : remote ? lane + "66" : lane)
       .text_color(head ? t.foreground : remote || tag ? t.dim : gone ? t.muted : lane)
       .child(gone ? `${name} · 已合併，可刪` : tag ? `tag ${name}` : name);
   }

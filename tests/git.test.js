@@ -1,20 +1,35 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseLog, remoteKind, ciState, remoteData, summary, showRows, parseShow, samePath, parseWorktrees, fetchError, fetchDue, fetchResult, FETCH_EVERY } from "../shared/git.js";
+import { parseLog, ago, splitSubject, remoteKind, ciState, remoteData, summary, showRows, parseShow, samePath, parseWorktrees, fetchError, fetchDue, fetchResult, FETCH_EVERY } from "../shared/git.js";
 
 const US = "\x1f";
 
 test("parseLog splits graph, fields and refs; graph-only lines keep the graph", () => {
   const text = [
-    `* ${US}a1b2c3d${US}fix(hooks): gate${US}HEAD -> main, origin/main, tag: v1${US}Wayne${US}2 hours ago${US}a1b2c3dfull`,
-    `| * ${US}9f8e7d6${US}wip${US}${US}Wayne${US}3 days ago${US}9f8e7d6full`,
+    `* ${US}a1b2c3d${US}fix(hooks): gate${US}HEAD -> main, origin/main, tag: v1${US}Wayne${US}1700000000${US}a1b2c3dfull`,
+    `| * ${US}9f8e7d6${US}wip${US}${US}Wayne${US}1699990000${US}9f8e7d6full`,
     "|/  ",
   ].join("\n");
   assert.deepEqual(parseLog(text), [
-    { graph: "* ", hash: "a1b2c3d", subject: "fix(hooks): gate", refs: ["HEAD -> main", "origin/main", "tag: v1"], author: "Wayne", when: "2 hours ago", full: "a1b2c3dfull" },
-    { graph: "| * ", hash: "9f8e7d6", subject: "wip", refs: [], author: "Wayne", when: "3 days ago", full: "9f8e7d6full" },
+    { graph: "* ", hash: "a1b2c3d", subject: "fix(hooks): gate", refs: ["HEAD -> main", "origin/main", "tag: v1"], author: "Wayne", when: "1700000000", full: "a1b2c3dfull" },
+    { graph: "| * ", hash: "9f8e7d6", subject: "wip", refs: [], author: "Wayne", when: "1699990000", full: "9f8e7d6full" },
     { graph: "|/" },
   ]);
+});
+
+test("ago writes commit seconds as 剛剛 / m / h / d, like the Agents list", () => {
+  const now = 1_000_000;
+  assert.equal(ago(now - 30, now), "剛剛");
+  assert.equal(ago(now - 5 * 60, now), "5m");
+  assert.equal(ago(now - 3 * 3600, now), "3h");
+  assert.equal(ago(now - 2 * 86400 - 5, now), "2d");
+});
+
+test("splitSubject separates a conventional-commit prefix, else leaves the subject whole", () => {
+  assert.deepEqual(splitSubject("feat(herdr): 加 Repos 面板"), ["feat(herdr): ", "加 Repos 面板"]);
+  assert.deepEqual(splitSubject("fix!: drop node 18"), ["fix!: ", "drop node 18"]);
+  assert.deepEqual(splitSubject("Merge branch 'main'"), ["", "Merge branch 'main'"]);
+  assert.deepEqual(splitSubject("wip"), ["", "wip"]);
 });
 
 test("remoteKind picks the CLI by host, null for others", () => {

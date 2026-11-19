@@ -10,7 +10,7 @@ foreach ($name in 'git-graph', 'git-status') {
     # A new mod folder whose main.js Herdr sees before mod.json gets the default place (right, 320 px)
     # in the layout: build it outside mods\ and move it in whole.
     $to = if (Test-Path $dir) { $dir } else { New-Item -ItemType Directory -Force "$app\.staging-$name" }
-    Copy-Item "$PSScriptRoot\mods\$name\main.js", "$PSScriptRoot\mods\$name\mod.json", "$PSScriptRoot\shared\*.js" $to -Force
+    Copy-Item "$PSScriptRoot\mods\$name\main.js", "$PSScriptRoot\mods\$name\mod.json", "$PSScriptRoot\mods\$name\*.svg", "$PSScriptRoot\shared\*.js" $to -Force
     if ("$to" -ne $dir) { Move-Item $to $dir }
 }
 

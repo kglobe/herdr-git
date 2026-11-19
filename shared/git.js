@@ -3,7 +3,7 @@
 // Reads write nothing under .git (no index refresh or lock, no fsmonitor cookie), as in the changes mod.
 export const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
 const US = "\x1f";
-export const LOG_FORMAT = `--format=${US}%h${US}%s${US}%D${US}%an${US}%ar${US}%H`;
+export const LOG_FORMAT = `--format=${US}%h${US}%s${US}%D${US}%an${US}%ct${US}%H`;
 export const ICON = { ok: "✓", fail: "✗", run: "●", none: "–" };
 export const firstLine = (s) => (s ?? "").trim().split("\n")[0].slice(0, 160);
 
@@ -14,6 +14,21 @@ export function parseLog(text) {
     const [hash, subject, refs, author, when, full] = line.slice(at + 1).split(US);
     return { graph: line.slice(0, at), hash, subject, refs: refs ? refs.split(", ") : [], author, when, full };
   });
+}
+
+// Unix seconds (%ct) as 剛剛 / Nm / Nh / Nd, as the Agents list writes it.
+export function ago(seconds, now) {
+  const d = now - seconds;
+  if (d < 60) return "剛剛";
+  if (d < 3600) return `${Math.floor(d / 60)}m`;
+  if (d < 86400) return `${Math.floor(d / 3600)}h`;
+  return `${Math.floor(d / 86400)}d`;
+}
+
+// "feat(scope): text" → ["feat(scope): ", "text"], so the repeated prefix can be drawn faint.
+export function splitSubject(s) {
+  const m = /^\w+(\([^)]*\))?!?: /.exec(s);
+  return m ? [m[0], s.slice(m[0].length)] : ["", s];
 }
 
 // gitlabHosts: self-hosted GitLab hosts, from `git config --get-all herdr.gitlab-host`.

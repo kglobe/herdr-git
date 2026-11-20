@@ -77,7 +77,9 @@ export default class GitGraph extends View {
   }
 
   refresh(cx) {
-    if (checking() || this.loading) return;
+    if (checking()) return;
+    // A load already running may use stale args (filter, cwd): the 2 s timer reloads after it.
+    if (this.loading) { this.dirty = true; return; }
     const cwd = this.context = this.cwd;
     this.dirty = false;
     if (!cwd) { this.root = null; this.rows = []; this.error = null; this.watch(null, cx); return; }
@@ -140,20 +142,19 @@ export default class GitGraph extends View {
     const button = (id, label, on, action) => div().id(id).px(8).h(24).flex().items_center().rounded(6).cursor_pointer()
       .bg(on ? t.selected : t.background).text_color(on ? t.foreground : t.muted).hover((s) => s.bg(t.hover)).on_click(action).child(label);
     const tab = (id, label) => button(`tab-${id}`, label, this.tab === id, (_e, cx) => { this.tab = id; cx.notify(); });
-    // A refresh already running would drop the new filter: dirty makes the 2 s timer reload after it.
-    const filter = (id, label, on, set) => button(`filter-${id}`, label, on, (_e, cx) => { set(); this.dirty = true; this.refresh(cx); cx.notify(); });
+    const filter = (id, label, on, set) => button(`filter-${id}`, label, on, (_e, cx) => { if (set()) { this.refresh(cx); cx.notify(); } });
     return v_flex().id("git-graph").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12.5)
       .on_size_change((size, cx) => { this.width = size.width; const wide = size.width >= 720; if (wide !== this.wide) { this.wide = wide; cx.notify(); } })
       .child(h_flex().h(38).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
         .child(tab("graph", "Graph")).child(tab("pr", "PR/MR"))
         .when(this.tab === "graph", (e) => e.child(div().w(1).h(16).mx(4).bg(t.border))
-          .child(filter("all", "所有分支", this.all, () => { this.all = true; }))
-          .child(filter("current", "目前分支", !this.all, () => { this.all = false; }))
-          .child(filter("remotes", this.showRemotes ? "✓ 遠端" : "遠端", this.showRemotes, () => { this.showRemotes = !this.showRemotes; })))
+          // set() returns whether anything changed, so clicking the active choice runs no git.
+          .child(filter("all", "所有分支", this.all, () => !this.all && (this.all = true)))
+          .child(filter("current", "目前分支", !this.all, () => this.all && !(this.all = false)))
+          .child(filter("remotes", this.showRemotes ? "✓ 遠端" : "遠端", this.showRemotes, () => { this.showRemotes = !this.showRemotes; return true; })))
         .child(div().flex_1())
         .child(div().min_w(0).truncate().text_color(t.dim).child(this.root?.split(/[\\/]/).pop() ?? ""))
-        .when(Boolean(this.root), (e) => e.child(div().flex_none().px(6).rounded(4).bg(t.accent + "26").text_color(t.accent).text_size(11.5)
-          .child(this.branch || "detached HEAD")))
+        .when(Boolean(this.root), (e) => e.child(this.refChip(this.branch ? `HEAD -> ${this.branch}` : "HEAD", t, t.accent)))
         .child(div().id("git-refresh").size(24).flex().items_center().justify_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => { run("git-status.refresh"); if (this.tab !== "pr") this.refresh(cx); })
           .child(svg("mods/git-graph/refresh.svg").size(14).text_color(t.muted))))
@@ -190,7 +191,7 @@ export default class GitGraph extends View {
         .child(Scrollbar.vertical("git-show").viewport_from_layout().absolute().inset_0())
         .child(div().id("git-show-close").absolute().top(4).right(16).size(22).flex().items_center().justify_center().rounded(6).cursor_pointer()
           .bg(t.chrome).text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .on_click((_e, cx) => { this.open = null; this.detail = []; cx.notify(); }).child("✕"))));
+          .on_click((_e, cx) => this.pick(this.open, cx)).child("✕"))));
   }
 
   // Draws the --graph text of row i as lane-colored lines: | straight, / \ as S-curves, _ along the bottom, * a dot.

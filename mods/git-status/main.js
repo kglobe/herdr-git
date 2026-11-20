@@ -2,13 +2,15 @@ import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { panes, focused, exec, run, theme, shared, setShared, nextCommand, checking } from "herdr";
 // git.js / repo.js come from the repo's shared/ folder: install.ps1 copies them in (mods can't import across folders).
-import { firstLine, remoteKind, remoteData, summary, defaultBase, mergedBranches, fetchError, fetchDue, fetchResult, fetchStopped } from "./git.js";
+import { firstLine, remoteKind, remoteData, issueRows, summary, defaultBase, mergedBranches, fetchError, fetchDue, fetchResult, fetchStopped } from "./git.js";
 import { repoCwd, remoteKey, gitIn } from "./repo.js";
 
 const CLI = {
   github: [["gh", ["pr", "list", "--json", "number,title,headRefName,isDraft,reviewDecision,statusCheckRollup,url"]],
-    ["gh", ["run", "list", "-L", "20", "--json", "headBranch,status,conclusion,displayTitle,url"]]],
-  gitlab: [["glab", ["mr", "list", "-F", "json"]], ["glab", ["ci", "list", "-P", "20", "-F", "json"]]],
+    ["gh", ["run", "list", "-L", "20", "--json", "headBranch,status,conclusion,displayTitle,url"]],
+    ["gh", ["issue", "list", "--json", "number,title,labels,assignees,url"]]],
+  // glab issue list spells it -O: there -F picks details / ids / urls.
+  gitlab: [["glab", ["mr", "list", "-F", "json"]], ["glab", ["ci", "list", "-P", "20", "-F", "json"]], ["glab", ["issue", "list", "-O", "json"]]],
 };
 
 // Always shown in the status row, so it owns the remote (gh / glab) data that git-graph reads from shared:
@@ -94,10 +96,12 @@ export default class GitStatus extends View {
     if (!kind) return this.store(root, { kind: null, error: "不支援的遠端" });
     const cli = CLI[kind][0][0];
     try {
-      const [pr, ci] = await Promise.all(CLI[kind].map(([cmd, args]) => exec(cmd, args, { cwd: root, timeout: 20000 })));
+      const [pr, ci, issue] = await Promise.all(CLI[kind].map(([cmd, args]) => exec(cmd, args, { cwd: root, timeout: 20000 })));
       const bad = [pr, ci].find((r) => r.code !== 0);
       if (bad) return this.store(root, { kind, error: `${cli}：${firstLine(bad.stderr || bad.stdout)}` });
-      this.store(root, { kind, ...remoteData(kind, JSON.parse(pr.stdout), JSON.parse(ci.stdout)) });
+      // Issues can be switched off per repo: that failure must not hide the PRs.
+      const issues = issue.code === 0 ? { issues: issueRows(kind, JSON.parse(issue.stdout)) } : { issues: [], issueError: `${cli}：${firstLine(issue.stderr || issue.stdout)}` };
+      this.store(root, { kind, ...remoteData(kind, JSON.parse(pr.stdout), JSON.parse(ci.stdout)), ...issues });
     } catch (e) {
       this.store(root, { kind, error: `${cli}：${firstLine(String(e))}` });
     }

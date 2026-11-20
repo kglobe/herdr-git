@@ -72,6 +72,11 @@ export function remoteData(kind, prs, runs) {
   };
 }
 
+// gh issue list or glab issue list, in one shape.
+export const issueRows = (kind, issues) => issues.map((i) => kind === "github"
+  ? { id: `#${i.number}`, title: i.title, labels: (i.labels ?? []).map((l) => l.name).join(", "), who: (i.assignees ?? []).map((a) => a.login).join(", "), url: i.url }
+  : { id: `#${i.iid}`, title: i.title, labels: (i.labels ?? []).join(", "), who: (i.assignees ?? []).map((a) => a.username).join(", "), url: i.web_url });
+
 // The status-bar text: only what the spaces sidebar doesn't show. Null when there's nothing to say.
 export function summary(remote, branch, deletable, fetchErr) {
   const pr = remote?.prs?.find((p) => p.branch === branch), pipe = remote?.pipelines?.find((p) => p.ref === branch);

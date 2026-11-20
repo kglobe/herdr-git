@@ -2,7 +2,7 @@
 
 給 herdr-app 用的兩個 mod，在 Herdr 裡看目前 repo 的 git 狀態。全部唯讀，不會寫進 `.git`。
 
-- git-graph：主區的面板，有 Graph 和 PR/MR 兩個分頁。
+- git-graph：主區的面板，有 Graph、PR/MR、Issue 三個分頁。
 - git-status：底部狀態列右邊的摘要，例如 `MR !12 ✗ · CI ● · 2 分支可刪`。
 
 ## 安裝
@@ -79,6 +79,10 @@ github.com 的 repo 用 gh 抓 PR，GitLab 用 glab 抓 MR。
 - 上半部列出所有開著的 PR/MR，附 CI 狀態、分支和 review 狀態，目前分支的那筆會標顏色
 - 下半部是目前分支最近 5 次的 CI
 - 點任何一列都會用瀏覽器開
+
+### Issue 分頁
+
+列出開著的 issue（gh / glab 預設最多 30 筆），附 label 和負責人，點一列會用瀏覽器開。repo 關掉 issue 功能時，這裡顯示 CLI 的錯誤訊息，PR/MR 分頁不受影響。
 
 ### 狀態列摘要
 

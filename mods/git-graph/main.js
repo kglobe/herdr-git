@@ -146,7 +146,7 @@ export default class GitGraph extends View {
     return v_flex().id("git-graph").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12.5)
       .on_size_change((size, cx) => { this.width = size.width; const wide = size.width >= 720; if (wide !== this.wide) { this.wide = wide; cx.notify(); } })
       .child(h_flex().h(38).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
-        .child(tab("graph", "Graph")).child(tab("pr", "PR/MR"))
+        .child(tab("graph", "Graph")).child(tab("pr", "PR/MR")).child(tab("issue", "Issue"))
         .when(this.tab === "graph", (e) => e.child(div().w(1).h(16).mx(4).bg(t.border))
           // set() returns whether anything changed, so clicking the active choice runs no git.
           .child(filter("all", "所有分支", this.all, () => !this.all && (this.all = true)))
@@ -156,7 +156,7 @@ export default class GitGraph extends View {
         .child(div().min_w(0).truncate().text_color(t.dim).child(this.root?.split(/[\\/]/).pop() ?? ""))
         .when(Boolean(this.root), (e) => e.child(this.refChip(this.branch ? `HEAD -> ${this.branch}` : "HEAD", t, t.accent)))
         .child(div().id("git-refresh").size(24).flex().items_center().justify_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => { run("git-status.refresh"); if (this.tab !== "pr") this.refresh(cx); })
+          .on_click((_e, cx) => { run("git-status.refresh"); if (this.tab === "graph") this.refresh(cx); })
           .child(svg("mods/git-graph/refresh.svg").size(14).text_color(t.muted))))
       .child(this.tab === "graph" ? this.graphView(t, mono) : this.prView(t));
   }
@@ -269,6 +269,16 @@ export default class GitGraph extends View {
     const row = (id, url) => h_flex().id(id).h(28).flex_none().px(10).gap(8).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => /^https?:\/\//i.test(url ?? "") && cx.open_url(url));
     const section = (text) => div().px(10).pt(10).pb(4).text_size(11).text_color(t.dim).child(text);
     const empty = (text) => div().px(10).py(4).text_color(t.dim).child(text);
+    // ?? []: shared data stored before issues were fetched has no list yet.
+    const issues = data.issues ?? [];
+    if (this.tab === "issue") return v_flex().id("git-issue").flex_1().min_h(0).p(6).overflow_y_scrollbar()
+      .child(section(`Issue · ${issues.length}`))
+      .children(issues.map((p) => row(`issue-${p.id}`, p.url)
+        .child(div().w(56).flex_none().text_color(t.dim).child(p.id))
+        .child(div().flex_1().min_w(0).truncate().child(p.title))
+        .child(div().max_w(200).flex_none().truncate().text_size(11).text_color(t.muted).child(p.labels))
+        .child(div().w(130).flex_none().truncate().text_size(11).text_color(t.dim).child(p.who))))
+      .when(!issues.length, (e) => e.child(empty(data.issueError ?? "沒有開著的 issue")));
     return v_flex().id("git-pr").flex_1().min_h(0).p(6).overflow_y_scrollbar()
       .child(section(`${word} · ${data.prs.length}`))
       .children(data.prs.map((p) => row(`pr-${p.id}`, p.url).child(ci(p.ci))

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseLog, ago, splitSubject, remoteKind, ciState, remoteData, summary, showRows, parseShow, samePath, parseWorktrees, fetchError, fetchDue, fetchResult, FETCH_EVERY, logRefs } from "../shared/git.js";
+import { parseLog, ago, splitSubject, remoteKind, ciState, remoteData, issueRows, summary, showRows, parseShow, samePath, parseWorktrees, fetchError, fetchDue, fetchResult, FETCH_EVERY, logRefs } from "../shared/git.js";
 
 const US = "\x1f";
 
@@ -84,6 +84,13 @@ test("remoteData matches GitLab MR pipelines by merge-request ref, else by branc
   const data = remoteData("gitlab", mrs, pipes);
   assert.deepEqual(data.prs.map((p) => [p.id, p.ci, p.review, p.draft]), [["!3361", "run", "not approved", false], ["!7", "fail", "mergeable", false], ["!8", "none", "draft status", true]]);
   assert.deepEqual(data.pipelines[0], { ref: "main", ci: "ok", title: "", url: "https://g/p/3" });
+});
+
+test("issueRows normalizes GitHub and GitLab issues", () => {
+  assert.deepEqual(issueRows("github", [{ number: 5, title: "bug", labels: [{ name: "bug" }, { name: "ui" }], assignees: [{ login: "wayne" }], url: "https://github.com/a/b/issues/5" }]),
+    [{ id: "#5", title: "bug", labels: "bug, ui", who: "wayne", url: "https://github.com/a/b/issues/5" }]);
+  assert.deepEqual(issueRows("gitlab", [{ iid: 9, title: "slow", labels: ["perf"], assignees: [], web_url: "https://g/issues/9" }]),
+    [{ id: "#9", title: "slow", labels: "perf", who: "", url: "https://g/issues/9" }]);
 });
 
 test("summary lists only what the sidebar lacks; null when nothing to say", () => {

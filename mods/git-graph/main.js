@@ -2,7 +2,7 @@ import { View, div, svg, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { spaces, run, theme, settings, shared, watchFolder, checking } from "herdr";
 // git.js / repo.js come from the repo's shared/ folder: install.ps1 copies them in (mods can't import across folders).
-import { LOG_FORMAT, SHOW_FORMAT, ICON, firstLine, parseLog, ago, splitSubject, parseWorktrees, parseShow, samePath, defaultBase, mergedBranches } from "./git.js";
+import { LOG_FORMAT, SHOW_FORMAT, ICON, firstLine, parseLog, ago, splitSubject, parseWorktrees, parseShow, samePath, defaultBase, mergedBranches, logRefs } from "./git.js";
 import { repoCwd, remoteKey, gitIn } from "./repo.js";
 
 const LIMIT = 300;
@@ -53,6 +53,7 @@ export default class GitGraph extends View {
   init(_props, cx) {
     this.tab = "graph"; this.rows = []; this.detail = []; this.detailWidth = 300;
     this.unpushed = new Set(); this.merged = new Set(); this.remotes = []; this.trees = []; this.wide = false;
+    this.all = true; this.showRemotes = true;
     if (checking()) return;
     // Debounce: a burst of .git changes (a commit, a fetch) sets dirty; this reloads at most every 2 s.
     cx.timer.every(2000, (cx) => { if (this.dirty) this.refresh(cx); });
@@ -89,7 +90,7 @@ export default class GitGraph extends View {
         const [root, common, head] = top.stdout.trim().split("\n");
         const git = gitIn(root), current = head === "HEAD" ? "" : head;
         const [log, remotes, trees, base] = await Promise.all([
-          git(["log", "--graph", "--all", "--date-order", "-n", String(LIMIT), LOG_FORMAT]),
+          git(["log", "--graph", ...logRefs(this.all, this.showRemotes, current), "--date-order", "-n", String(LIMIT), LOG_FORMAT]),
           git(["remote"]), git(["worktree", "list", "--porcelain"]), defaultBase(git)]);
         if (log.code !== 0) throw new Error(firstLine(log.stderr));
         const names = remotes.stdout.split("\n").filter(Boolean);
@@ -139,11 +140,20 @@ export default class GitGraph extends View {
     const button = (id, label, on, action) => div().id(id).px(8).h(24).flex().items_center().rounded(6).cursor_pointer()
       .bg(on ? t.selected : t.background).text_color(on ? t.foreground : t.muted).hover((s) => s.bg(t.hover)).on_click(action).child(label);
     const tab = (id, label) => button(`tab-${id}`, label, this.tab === id, (_e, cx) => { this.tab = id; cx.notify(); });
+    // A refresh already running would drop the new filter: dirty makes the 2 s timer reload after it.
+    const filter = (id, label, on, set) => button(`filter-${id}`, label, on, (_e, cx) => { set(); this.dirty = true; this.refresh(cx); cx.notify(); });
     return v_flex().id("git-graph").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12.5)
       .on_size_change((size, cx) => { this.width = size.width; const wide = size.width >= 720; if (wide !== this.wide) { this.wide = wide; cx.notify(); } })
       .child(h_flex().h(38).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
-        .child(tab("graph", "Graph")).child(tab("pr", "PR/MR")).child(div().flex_1())
+        .child(tab("graph", "Graph")).child(tab("pr", "PR/MR"))
+        .when(this.tab === "graph", (e) => e.child(div().w(1).h(16).mx(4).bg(t.border))
+          .child(filter("all", "所有分支", this.all, () => { this.all = true; }))
+          .child(filter("current", "目前分支", !this.all, () => { this.all = false; }))
+          .child(filter("remotes", this.showRemotes ? "✓ 遠端" : "遠端", this.showRemotes, () => { this.showRemotes = !this.showRemotes; })))
+        .child(div().flex_1())
         .child(div().min_w(0).truncate().text_color(t.dim).child(this.root?.split(/[\\/]/).pop() ?? ""))
+        .when(Boolean(this.root), (e) => e.child(div().flex_none().px(6).rounded(4).bg(t.accent + "26").text_color(t.accent).text_size(11.5)
+          .child(this.branch || "detached HEAD")))
         .child(div().id("git-refresh").size(24).flex().items_center().justify_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => { run("git-status.refresh"); if (this.tab !== "pr") this.refresh(cx); })
           .child(svg("mods/git-graph/refresh.svg").size(14).text_color(t.muted))))
@@ -177,7 +187,10 @@ export default class GitGraph extends View {
         // bg() takes only a color: thin strips of rising alpha stand in for a gradient (wide ones show as steps).
         .when(this.detailWidth > (this.width ?? Infinity), (e) => e.child(h_flex().absolute().top_0().bottom_0().right_0()
           .children(FADE.map((a) => div().w(3).h_full().bg(t.chrome + a)))))
-        .child(Scrollbar.vertical("git-show").viewport_from_layout().absolute().inset_0())));
+        .child(Scrollbar.vertical("git-show").viewport_from_layout().absolute().inset_0())
+        .child(div().id("git-show-close").absolute().top(4).right(16).size(22).flex().items_center().justify_center().rounded(6).cursor_pointer()
+          .bg(t.chrome).text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
+          .on_click((_e, cx) => { this.open = null; this.detail = []; cx.notify(); }).child("✕"))));
   }
 
   // Draws the --graph text of row i as lane-colored lines: | straight, / \ as S-curves, _ along the bottom, * a dot.

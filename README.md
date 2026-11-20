@@ -60,14 +60,17 @@ git config --global --add herdr.gitlab-host git.example.com
 
 ### Graph 分頁
 
-畫出 `git log --graph --all`，最多 300 筆。refs 有變動（commit、切分支、fetch）時會自動重畫。
+畫出 `git log --graph`，最多 300 筆。refs 有變動（commit、切分支、fetch）時會自動重畫。
 
+- 上方的「所有分支」「目前分支」切換要畫哪些分支。「目前分支」只畫 HEAD 和遠端上同名的分支
+- 「遠端」關掉後，不畫遠端分支，本地 commit 上也不再標 `origin/...`
+- 右上角顯示 repo 名稱和目前分支
 - 空心圓點是還沒 push 的 commit，分支名稱旁邊會標「↑ 未push」
 - 已經合併進預設分支的本地分支標成「已合併，可刪」
 - 目前的 HEAD 用實心底色標出來
-- 點一筆 commit，下半部會顯示 `git show` 的內容
+- 點一筆 commit，下半部會顯示 `git show` 的內容。按右上角的 ✕ 或再點同一筆就關掉
 - repo 有多個 worktree 時，上方會多一列 worktree，點了就切過去
-- 面板寬度到 720 px 以上，會多顯示 hash、作者和時間
+- 面板寬度到 720 px 以上，會多顯示 hash 和作者
 
 ### PR/MR 分頁
 

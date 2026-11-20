@@ -57,7 +57,7 @@ git config --global --add herdr.gitlab-host git.example.com
 - 按右上角的 Git 按鈕
 - 按 `ctrl-shift-g`
 
-面板會從目前的窗格往右切出來。用 `pane.split` 自己開面板時，`props` 帶 `{"tab": "issue"}` 可以指定一開始停在哪個分頁（`graph`、`pr`、`issue`），不帶就是 Graph。
+面板會從目前的窗格往右切出來。
 
 ### Graph 分頁
 

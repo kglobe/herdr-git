@@ -1,6 +1,6 @@
 import { View, div, svg, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, run, theme, settings, shared, watchFolder, checking, props } from "herdr";
+import { spaces, run, theme, settings, shared, watchFolder, checking } from "herdr";
 // git.js / repo.js come from the repo's shared/ folder: install.ps1 copies them in (mods can't import across folders).
 import { LOG_FORMAT, SHOW_FORMAT, ICON, firstLine, parseLog, ago, splitSubject, parseWorktrees, parseShow, samePath, defaultBase, mergedBranches, logRefs } from "./git.js";
 import { repoCwd, remoteKey, gitIn } from "./repo.js";
@@ -50,9 +50,8 @@ function diffRow({ kind, old, new: next, hash, text, add, del, max }, t, mono) {
 
 // Read-only view of the focused repo: commit graph (local) and PR/MR + CI (remote data that git-status fetches).
 export default class GitGraph extends View {
-  // props().tab: the tab to start on (agent-home's Repos panel opens this on "issue").
   init(_props, cx) {
-    this.tab = props()?.tab ?? "graph"; this.rows = []; this.detail = []; this.detailWidth = 300;
+    this.tab = "graph"; this.rows = []; this.detail = []; this.detailWidth = 300;
     this.unpushed = new Set(); this.merged = new Set(); this.remotes = []; this.trees = []; this.wide = false;
     this.all = true; this.showRemotes = true;
     if (checking()) return;

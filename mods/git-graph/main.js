@@ -50,8 +50,9 @@ function diffRow({ kind, old, new: next, hash, text, add, del, max }, t, mono) {
 
 // Read-only view of the focused repo: commit graph (local) and PR/MR + CI (remote data that git-status fetches).
 export default class GitGraph extends View {
-  init(_props, cx) {
-    this.tab = "graph"; this.rows = []; this.detail = []; this.detailWidth = 300;
+  // props.tab: the tab to start on (agent-home's Repos panel opens this on "issue").
+  init(props, cx) {
+    this.tab = props?.tab ?? "graph"; this.rows = []; this.detail = []; this.detailWidth = 300;
     this.unpushed = new Set(); this.merged = new Set(); this.remotes = []; this.trees = []; this.wide = false;
     this.all = true; this.showRemotes = true;
     if (checking()) return;

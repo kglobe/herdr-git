@@ -31,6 +31,7 @@ install.ps1 會做這些事：
 3. 把 `main-wintoast` 的狀態列改成左右兩格，右格放 git-status，tabs 換成 tabs-git
 4. 在 `keys.json` 加 `ctrl-shift-g`
 5. 對三個 mod 跑 `herdr-app check`，有錯就停下來
+6. 裝過 agent-home 的 Repos、Progress 面板（`mods/home-repo/home.json` 存在）的話，接著跑 agent-home 的 `herdr/install.ps1`。tabs-git 重建後那兩顆按鈕會不見，要靠它補回來
 
 重跑不會重複套用。拉了新版或 herdr-app 更新內建 tabs 之後，再跑一次就會更新。
 
@@ -56,7 +57,7 @@ git config --global --add herdr.gitlab-host git.example.com
 - 按右上角的 Git 按鈕
 - 按 `ctrl-shift-g`
 
-面板會從目前的窗格往右切出來。
+面板會從目前的窗格往右切出來。用 `pane.split` 自己開面板時，`props` 帶 `{"tab": "issue"}` 可以指定一開始停在哪個分頁（`graph`、`pr`、`issue`），不帶就是 Graph。
 
 ### Graph 分頁
 

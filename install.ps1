@@ -63,3 +63,14 @@ foreach ($name in 'git-graph', 'git-status', 'tabs-git') {
     & $herdr check "$app\mods\$name"
     if ($LASTEXITCODE) { throw "herdr-app check $name failed" }
 }
+
+# agent-home keeps its Repos and Progress buttons in tabs-git, which was just rebuilt without them:
+# its installer (home.json's root says where) puts them back. It needs pwsh 7.
+$homeRepo = "$app\mods\home-repo\home.json"
+if (Test-Path $homeRepo) {
+    $again = Join-Path ([IO.File]::ReadAllText($homeRepo) | ConvertFrom-Json).root 'herdr\install.ps1'
+    if (Test-Path $again) {
+        pwsh -NoProfile -File $again
+        if ($LASTEXITCODE) { throw "$again failed" }
+    }
+}

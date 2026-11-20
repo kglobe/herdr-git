@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseLog, ago, splitSubject, remoteKind, ciState, remoteData, summary, showRows, parseShow, samePath, parseWorktrees, fetchError, fetchDue, fetchResult, FETCH_EVERY } from "../shared/git.js";
+import { parseLog, ago, splitSubject, remoteKind, ciState, remoteData, summary, showRows, parseShow, samePath, parseWorktrees, fetchError, fetchDue, fetchResult, FETCH_EVERY, logRefs } from "../shared/git.js";
 
 const US = "\x1f";
 
@@ -150,4 +150,14 @@ test("auto-fetch runs every 5 min, stops after 3 straight failures, a success re
   assert.deepEqual(s, { at: t0 + 2 * FETCH_EVERY, fails: 3, error: "y" });
   assert.equal(fetchDue(s, t0 + 10 * FETCH_EVERY), false);
   assert.deepEqual(fetchResult({ at: 0, fails: 2, error: "x" }, null, t0), { at: t0, fails: 0, error: null });
+});
+
+test("logRefs picks the graph's refs: all or current branch, with or without remotes", () => {
+  assert.deepEqual(logRefs(true, true, "main"), ["--all"]);
+  // Remote refs off: also drop their labels, or origin/main still shows on local commits.
+  assert.deepEqual(logRefs(true, false, "main"), ["--branches", "--tags", "HEAD", "--decorate-refs-exclude=refs/remotes"]);
+  assert.deepEqual(logRefs(false, true, "main"), ["HEAD", "--remotes=*/main"]);
+  assert.deepEqual(logRefs(false, false, "main"), ["HEAD", "--decorate-refs-exclude=refs/remotes"]);
+  // Detached HEAD has no branch name to match on the remote.
+  assert.deepEqual(logRefs(false, true, ""), ["HEAD"]);
 });

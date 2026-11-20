@@ -171,3 +171,11 @@ export const FETCH_EVERY = 5 * 60000;
 export const fetchStopped = (s) => s?.fails >= 3;
 export const fetchDue = (s, now) => !s || (!fetchStopped(s) && now - s.at >= FETCH_EVERY);
 export const fetchResult = (s, error, now) => ({ at: now, fails: error ? (s?.fails ?? 0) + 1 : 0, error });
+
+// The graph's starting refs for git log. Hiding remotes also drops their labels from local commits.
+// shortcut: */<branch> also matches a remote branch like origin/x/main; fine unless someone names branches that way.
+export function logRefs(all, remotes, branch) {
+  if (all) return remotes ? ["--all"] : ["--branches", "--tags", "HEAD", "--decorate-refs-exclude=refs/remotes"];
+  if (!remotes) return ["HEAD", "--decorate-refs-exclude=refs/remotes"];
+  return branch ? ["HEAD", `--remotes=*/${branch}`] : ["HEAD"];
+}

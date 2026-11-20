@@ -164,8 +164,10 @@ export default class GitGraph extends View {
             .when(!here, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => this.gotoTree(w.path))).child(w.branch);
         }))))
       .child(div().flex_1().min_h(0).relative()
-        // Plain rows, as the changes mod's file list: v_virtual_list drew nothing here, and LIMIT keeps it at 300 rows.
-        .child(v_flex().id("git-log").absolute().inset_0().overflow_y_scroll().children(this.rows.map((r, i) => this.logRow(i, t, mono, gw, Date.now() / 1000))))
+        // Virtual: drawing all 300 rows' graph paths in one render overran the script's time limit ("interrupted").
+        .child(v_virtual_list("git-log", this.rows.length, this.rows.map((r) => r.hash ? ROW : LINK), (i) => this.rows[i].full || `link-${i}`,
+          (range) => { const now = Date.now() / 1000; return this.rows.slice(range.start, range.end).map((_r, k) => this.logRow(range.start + k, t, mono, gw, now)); })
+          .size_full().on_item_click((key, cx) => { if (!key.startsWith("link-")) this.pick(key, cx); }))
         .child(Scrollbar.vertical("git-log").absolute().inset_0()))
       .when(Boolean(this.open), (el) => el.child(div().flex_1().min_h(0).relative().border_t(1).border_color(t.accent).bg(t.chrome)
         .child(div().id("git-show-x").size_full().overflow_x_scrollbar()
@@ -217,9 +219,9 @@ export default class GitGraph extends View {
     const tip = r.refs.some((ref) => !ref.startsWith("tag: ") && !this.remotes.some((rm) => ref.replace("HEAD -> ", "").startsWith(`${rm}/`)));
     // Every row starts with feat(x): / fix(x): — faint, so the eye lands on what changed.
     const [prefix, rest] = splitSubject(r.subject);
-    return h_flex().id(`c-${i}`).w_full().h(ROW).flex_none().px(10).gap(8).items_center().cursor_pointer()
+    return h_flex().w_full().h(ROW).flex_none().px(10).gap(8).items_center().cursor_pointer()
       .border_l(2).border_color(this.open === r.full ? t.accent : "#00000000")
-      .when(this.open === r.full, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.pick(r.full, cx))
+      .when(this.open === r.full, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
       .child(graph)
       .when(this.wide, (e) => e.child(div().flex_none().font_family(mono).text_size(11.5).text_color(t.dim).child(r.hash)))
       .child(h_flex().flex_1().min_w(0)
